@@ -1,0 +1,42 @@
+import { Service, Characteristic, PlatformAccessory } from 'homebridge';
+import { AldesVMCPlatform } from './platform';
+
+export class AldesVMCAccessory {
+    private service: Service;
+    private currentMode: string;
+
+    constructor(
+        private readonly platform: AldesVMCPlatform,
+        private readonly accessory: PlatformAccessory
+    ) {
+        this.currentMode = 'V'; // Default mode
+
+        this.accessory
+            .getService(Service.AccessoryInformation)!
+            .setCharacteristic(Characteristic.Manufacturer, 'Aldes')
+            .setCharacteristic(Characteristic.Model, 'VMC')
+            .setCharacteristic(Characteristic.SerialNumber, '123456');
+
+        this.service = this.accessory.addService(Service.Switch, 'Aldes VMC');
+
+        this.service
+            .getCharacteristic(Characteristic.On)
+            .onSet(this.handleModeChange.bind(this));
+
+        this.updateState();
+    }
+
+    async handleModeChange(value: boolean) {
+        if (value) {
+            this.currentMode = this.currentMode === 'V' ? 'Y' : this.currentMode === 'Y' ? 'X' : 'V';
+            await this.platform.setVMCMode(this.currentMode);
+            this.updateState();
+        }
+    }
+
+    updateState() {
+        this.service
+            .getCharacteristic(Characteristic.On)
+            .updateValue(this.currentMode === 'V' || this.currentMode === 'Y' || this.currentMode === 'X');
+    }
+}

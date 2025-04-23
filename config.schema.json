@@ -1,0 +1,28 @@
+{
+  "pluginAlias": "AldesVMC",
+  "pluginType": "platform",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "username": {
+        "title": "Aldes Username",
+        "type": "string",
+        "required": true,
+        "description": "Your username for the AldesConnect account."
+      },
+      "password": {
+        "title": "Aldes Password",
+        "type": "string",
+        "required": true,
+        "description": "Your password for the AldesConnect account.",
+        "format": "password"
+      },
+      "vmcName": {
+        "title": "VMC Accessory Name",
+        "type": "string",
+        "description": "Optional: The name for your Aldes VMC accessory in the Home app.",
+        "default": "Aldes VMC"
+      }
+    }
+  }
+}
