@@ -1,30 +1,28 @@
-import { Service, PlatformAccessory, CharacteristicValue, Logger } from 'homebridge'; // Removed API import if not used directly
+import { Service, PlatformAccessory, CharacteristicValue, Logger, Characteristic } from 'homebridge'; // Ensure Characteristic is imported
 import { AldesVMCPlatform } from './platform';
 import { AldesAPI, VmcMode } from './aldes_api';
 
 // --- Constants for Aldes Modes to HomeKit Fan States ---
 // Map Aldes modes to HomeKit RotationSpeed percentages
 const AldesModeToSpeed: Record<VmcMode, number> = {
-    // Adjust these values based on your testing:
-    'V': 33,  // If 'V' is lowest speed
-    'Y': 66,  // If 'Y' is medium speed
-    'X': 100, // If 'X' is highest speed
+    'V': 33,  // Standard/Vacation (represents INACTIVE state speed)
+    'Y': 66,  // Boost/Daily
+    'X': 100, // Guests/Max
 };
 // Map HomeKit RotationSpeed percentages back to Aldes modes
-// Find the closest mode for a given speed percentage
 const SpeedToAldesMode = (speed: number): VmcMode => {
-    // Adjust the thresholds based on your testing and desired behavior:
-    if (speed <= 33) return 'V'; // Speeds 1-33% map to 'V'
-    if (speed <= 66) return 'Y'; // Speeds 34-66% map to 'Y'
-    return 'X';                 // Speeds 67-100% map to 'X'
+    // If speed is low, map to 'V'. Otherwise, find closest higher mode.
+    if (speed <= AldesModeToSpeed['V']) return 'V'; // Speeds up to 33% map to 'V'
+    if (speed <= AldesModeToSpeed['Y']) return 'Y'; // Speeds 34-66% map to 'Y'
+    return 'X';                                     // Speeds 67-100% map to 'X'
 };
-const OFF_SPEED = 0; // HomeKit Fan Off speed
+const DEFAULT_ACTIVE_MODE: VmcMode = 'Y'; // Default mode when turning fan ON
 
 export class VmcAccessory {
     private service: Service;
     private deviceId: string | null = null;
-    private currentMode: VmcMode | null = null; // Cache the last known mode
-    private isActive: boolean = false; // Cache the last known active state
+    private currentMode: VmcMode = 'V'; // Default to 'V' initially
+    // isActive is now derived directly from currentMode !== 'V'
 
     constructor(
         private readonly platform: AldesVMCPlatform,
@@ -34,25 +32,50 @@ export class VmcAccessory {
     ) {
         this.accessory.getService(this.platform.Service.AccessoryInformation)!
             .setCharacteristic(this.platform.Characteristic.Manufacturer, 'Aldes')
-            .setCharacteristic(this.platform.Characteristic.Model, 'VMC') // Replace with actual model if known
-            .setCharacteristic(this.platform.Characteristic.SerialNumber, this.accessory.UUID); // Use UUID or fetched ID
+            .setCharacteristic(this.platform.Characteristic.Model, 'VMC Fan Control') // Updated model
+            .setCharacteristic(this.platform.Characteristic.SerialNumber, this.accessory.UUID);
 
+        // --- Remove Old/Unwanted Services ---
+        const servicesToRemove: (typeof Service)[] = [
+            this.platform.Service.Switch,
+            this.platform.Service.Outlet,
+            this.platform.Service.Thermostat,
+        ];
+        servicesToRemove.forEach(serviceType => {
+            // Cast serviceType to 'any' to bypass strict type checking for static UUID access
+            const serviceUUID = (serviceType as any).UUID;
+            if (!serviceUUID) {
+                this.log.warn(`Could not find UUID for service type ${serviceType.name}. Skipping removal.`);
+                return; // Skip if UUID can't be found
+            }
+
+            // Filter service instances by comparing their UUID with the fetched static UUID
+            const servicesOfType = this.accessory.services.filter(s => s.UUID === serviceUUID);
+            servicesOfType.forEach(service => {
+                this.log.info(`Removing existing ${service.displayName} (Type: ${serviceType.name}, UUID: ${serviceUUID}) service.`);
+                this.accessory.removeService(service);
+            });
+        });
+        // --- End Remove Old Services ---
+
+        // --- Initialize Fanv2 Service ---
         this.service = this.accessory.getService(this.platform.Service.Fanv2) || this.accessory.addService(this.platform.Service.Fanv2);
         this.service.setCharacteristic(this.platform.Characteristic.Name, accessory.displayName);
 
+        // --- Configure Fanv2 Characteristics ---
         this.service.getCharacteristic(this.platform.Characteristic.Active)
             .onGet(this.handleActiveGet.bind(this))
             .onSet(this.handleActiveSet.bind(this));
 
         this.service.getCharacteristic(this.platform.Characteristic.RotationSpeed)
-             // Set props for steps if you only want discrete speeds (33, 66, 100)
              .setProps({
-                 minValue: 0,
+                 minValue: 0,   // Keep 0 for UI purposes, map it to 'V'
                  maxValue: 100,
-                 minStep: 33, // Allows speeds like 0, 33, 66, 99 (or 100)
+                 minStep: 1,    // Allow smooth slider
              })
              .onGet(this.handleRotationSpeedGet.bind(this))
              .onSet(this.handleRotationSpeedSet.bind(this));
+        // --- End Fanv2 Service Initialization ---
 
         this.initializeDevice();
     }
@@ -71,20 +94,23 @@ export class VmcAccessory {
 
     // Method to fetch current status and update cache + HomeKit state
     async refreshStatus() {
-        if (!this.deviceId) return; // Don't refresh if no ID
+        if (!this.deviceId) return;
 
         this.log.debug(`Refreshing status for ${this.accessory.displayName}...`);
         try {
             const mode = await this.aldesApi.getCurrentMode(this.deviceId);
-            this.currentMode = mode;
-            // Assuming 'V' mode means it's technically ON but at minimum.
-            // If Aldes truly has an OFF state reportable via API, adjust this.
-            this.isActive = mode !== null; // Active if any mode is reported
+            if (mode) { // Only update if API returns a valid mode
+                this.currentMode = mode;
+            } else {
+                this.log.warn(`[Refresh] Received null/undefined mode from API. Keeping cached mode: ${this.currentMode}`);
+                // Optionally handle error state here, e.g., set to 'V' or throw error
+            }
 
-            const currentSpeed = this.isActive && this.currentMode ? AldesModeToSpeed[this.currentMode] : OFF_SPEED;
-            const currentActiveState = this.isActive ? this.platform.Characteristic.Active.ACTIVE : this.platform.Characteristic.Active.INACTIVE;
+            const isActiveState = this.currentMode !== 'V'; // Active if mode is Y or X
+            const currentSpeed = AldesModeToSpeed[this.currentMode];
+            const currentActiveState = isActiveState ? this.platform.Characteristic.Active.ACTIVE : this.platform.Characteristic.Active.INACTIVE;
 
-            this.log.debug(`Refreshed Status - Mode: ${this.currentMode}, Active: ${this.isActive}, Speed: ${currentSpeed}`);
+            this.log.debug(`Refreshed Status - Mode: ${this.currentMode}, ActiveState: ${currentActiveState}, Speed: ${currentSpeed}`);
 
             // Update HomeKit state non-blockingly
             this.service.updateCharacteristic(this.platform.Characteristic.Active, currentActiveState);
@@ -98,14 +124,14 @@ export class VmcAccessory {
 
 
     async handleActiveGet(): Promise<CharacteristicValue> {
-        // Return cached state, potentially trigger a refresh first if needed frequently
-        // await this.refreshStatus(); // Uncomment if fresh data is always needed on GET
-        if (!this.deviceId) { // Check if deviceId failed initialization
+        if (!this.deviceId) {
              this.log.warn(`Cannot get active state for ${this.accessory.displayName}: Device ID not available.`);
              throw new this.platform.api.hap.HapStatusError(this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
         }
-        const state = this.isActive ? this.platform.Characteristic.Active.ACTIVE : this.platform.Characteristic.Active.INACTIVE;
-        this.log.debug(`GET Active for ${this.accessory.displayName}: Returning ${state} (Cached: ${this.isActive})`);
+        // Determine active state based on cached mode
+        const isActiveState = this.currentMode !== 'V';
+        const state = isActiveState ? this.platform.Characteristic.Active.ACTIVE : this.platform.Characteristic.Active.INACTIVE;
+        this.log.debug(`GET Active for ${this.accessory.displayName}: Returning ${state} (Mode: ${this.currentMode})`);
         return state;
     }
 
@@ -114,59 +140,56 @@ export class VmcAccessory {
             this.log.warn(`Cannot set active state for ${this.accessory.displayName}: Device ID not available.`);
             throw new this.platform.api.hap.HapStatusError(this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
         }
-        const targetActive = value === this.platform.Characteristic.Active.ACTIVE;
-        this.log.debug(`SET Active for ${this.accessory.displayName} to: ${targetActive}`);
+        const targetActiveState = value as number; // ACTIVE or INACTIVE
+        const targetIsActive = targetActiveState === this.platform.Characteristic.Active.ACTIVE;
+        this.log.debug(`SET Active for ${this.accessory.displayName} to: ${targetActiveState} (${targetIsActive})`);
 
-        if (targetActive === this.isActive) {
-            this.log.debug(`Active state is already ${targetActive}. No change needed.`);
+        const currentIsActive = this.currentMode !== 'V';
+
+        if (targetIsActive === currentIsActive) {
+            this.log.debug(`Active state is already ${targetIsActive}. No change needed.`);
+            // Ensure HomeKit UI matches internal state if needed
+            this.service.updateCharacteristic(this.platform.Characteristic.Active, targetActiveState);
             return;
         }
 
-        // If turning ON, set to 'Y' (Daily/Auto) or last known mode if available?
-        // If turning OFF, set to 'V' (Vacation/Min) as Aldes might not have true OFF.
-        const targetMode: VmcMode = targetActive ? (this.currentMode || 'Y') : 'V';
-        // If turning off, we actually set mode 'V'. If turning on, set mode 'Y' or restore previous.
-        // The 'isActive' state will be derived from the mode ('V', 'Y', 'X' are all considered active).
+        // Determine target mode: 'V' if turning OFF, DEFAULT_ACTIVE_MODE ('Y') if turning ON
+        const targetMode: VmcMode = targetIsActive ? DEFAULT_ACTIVE_MODE : 'V';
 
-        this.log.info(`Setting ${this.accessory.displayName} Active=${targetActive} by setting mode to ${targetMode}`);
+        this.log.info(`Setting ${this.accessory.displayName} Active=${targetIsActive} by setting mode to ${targetMode}`);
 
         try {
             const success = await this.aldesApi.setVmcMode(this.deviceId, targetMode);
             if (!success) {
                 this.log.error(`API call failed to set mode to ${targetMode}`);
-                throw new Error('API call failed'); // Trigger catch block
+                throw new Error('API call failed');
             }
 
             // Update cache after successful API call
             this.currentMode = targetMode;
-            this.isActive = true; // Since V, Y, X are all active states
 
             // Update HomeKit characteristics
             const targetSpeed = AldesModeToSpeed[targetMode];
             this.service.updateCharacteristic(this.platform.Characteristic.RotationSpeed, targetSpeed);
-            // Active state should update automatically based on speed > 0, but update explicitly if needed
-            this.service.updateCharacteristic(this.platform.Characteristic.Active, this.platform.Characteristic.Active.ACTIVE);
+            // Active state should match the requested state
+            this.service.updateCharacteristic(this.platform.Characteristic.Active, targetActiveState);
 
             this.log.info(`Successfully set mode to ${targetMode} for ${this.accessory.displayName}`);
 
         } catch (error) {
             this.log.error(`Error setting mode to ${targetMode} for ${this.accessory.displayName}: ${error}`);
-            // Revert optimistic update or refresh status? For now, just throw.
-            // Trigger a refresh to get the actual current state after failure
             setTimeout(() => this.refreshStatus(), 1000); // Refresh after 1s
             throw new this.platform.api.hap.HapStatusError(this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
         }
     }
 
     async handleRotationSpeedGet(): Promise<CharacteristicValue> {
-        // Return cached state, potentially trigger a refresh first
-        // await this.refreshStatus(); // Uncomment if fresh data is always needed on GET
          if (!this.deviceId) {
              this.log.warn(`Cannot get speed for ${this.accessory.displayName}: Device ID not available.`);
              throw new this.platform.api.hap.HapStatusError(this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
         }
-        const speed = this.isActive && this.currentMode ? AldesModeToSpeed[this.currentMode] : OFF_SPEED;
-        this.log.debug(`GET RotationSpeed for ${this.accessory.displayName}: Returning ${speed} (Cached Mode: ${this.currentMode}, Active: ${this.isActive})`);
+        const speed = AldesModeToSpeed[this.currentMode];
+        this.log.debug(`GET RotationSpeed for ${this.accessory.displayName}: Returning ${speed} (Mode: ${this.currentMode})`);
         return speed;
     }
 
@@ -181,22 +204,16 @@ export class VmcAccessory {
         // Determine target Aldes mode based on speed
         const targetMode = SpeedToAldesMode(speed);
         const targetSpeed = AldesModeToSpeed[targetMode]; // Get the canonical speed for the target mode
+        const targetIsActive = targetMode !== 'V';
+        const targetActiveState = targetIsActive ? this.platform.Characteristic.Active.ACTIVE : this.platform.Characteristic.Active.INACTIVE;
 
         // Check if the mode is already correct
-        if (this.isActive && this.currentMode === targetMode) {
-            this.log.debug(`Mode is already ${targetMode}. Ensuring speed is ${targetSpeed}.`);
-            // Update HomeKit speed in case the requested 'value' wasn't exactly the step value
+        if (this.currentMode === targetMode) {
+            this.log.debug(`Mode is already ${targetMode}. Ensuring speed (${targetSpeed}) and active state (${targetActiveState}) are correct.`);
+            // Update HomeKit speed/active state in case the requested 'value' wasn't exactly the step value or active state was wrong
             this.service.updateCharacteristic(this.platform.Characteristic.RotationSpeed, targetSpeed);
-            this.service.updateCharacteristic(this.platform.Characteristic.Active, this.platform.Characteristic.Active.ACTIVE);
+            this.service.updateCharacteristic(this.platform.Characteristic.Active, targetActiveState);
             return;
-        }
-
-        // If speed is 0, handle like setting Active to INACTIVE (which sets mode 'V')
-        if (speed === OFF_SPEED) {
-            this.log.info(`RotationSpeed set to ${OFF_SPEED}. Setting Active to INACTIVE (Mode V).`);
-            // Delegate to handleActiveSet to turn "off" (set mode V)
-            await this.handleActiveSet(this.platform.Characteristic.Active.INACTIVE);
-            return; // Exit after handling off state
         }
 
         // Set the target mode V, Y, or X
@@ -210,10 +227,9 @@ export class VmcAccessory {
 
             // Update cache
             this.currentMode = targetMode;
-            this.isActive = true;
 
-            // Update HomeKit (ensure Active is ON and Speed is the canonical value)
-            this.service.updateCharacteristic(this.platform.Characteristic.Active, this.platform.Characteristic.Active.ACTIVE);
+            // Update HomeKit (ensure Active and Speed are the canonical values for the mode)
+            this.service.updateCharacteristic(this.platform.Characteristic.Active, targetActiveState);
             this.service.updateCharacteristic(this.platform.Characteristic.RotationSpeed, targetSpeed);
 
             this.log.info(`Successfully set mode to ${targetMode} for ${this.accessory.displayName}`);
