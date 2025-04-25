@@ -4,7 +4,7 @@
   "description": "A Homebridge plugin to control Aldes VMC modes via the AldesConnect API.",
   "main": "dist/index.js",
   "scripts": {
-    "clean": "rimraf ./dist",
+    "clean": "node ./node_modules/.bin/rimraf ./dist",
     "build": "npm run clean && tsc",
     "test": "echo \"Error: no test specified\" && exit 1",
     "lint": "eslint .",

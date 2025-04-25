@@ -5,16 +5,16 @@ import { AldesAPI, VmcMode } from './aldes_api';
 // --- Constants for Aldes Modes to HomeKit Fan States ---
 // Map Aldes modes to HomeKit RotationSpeed percentages
 const AldesModeToSpeed: Record<VmcMode, number> = {
-    'V': 33,  // Standard/Vacation (represents INACTIVE state speed)
-    'Y': 66,  // Boost/Daily
-    'X': 100, // Guests/Max
+    'V': 0,   // Standard/Vacation (represents OFF state speed)
+    'Y': 50,  // Boost/Daily (middle position)
+    'X': 100, // Guests/Max (highest position)
 };
 // Map HomeKit RotationSpeed percentages back to Aldes modes
 const SpeedToAldesMode = (speed: number): VmcMode => {
-    // If speed is low, map to 'V'. Otherwise, find closest higher mode.
-    if (speed <= AldesModeToSpeed['V']) return 'V'; // Speeds up to 33% map to 'V'
-    if (speed <= AldesModeToSpeed['Y']) return 'Y'; // Speeds 34-66% map to 'Y'
-    return 'X';                                     // Speeds 67-100% map to 'X'
+    // Exact 3-position logic
+    if (speed < 25) return 'V';      // 0% position maps to 'V'
+    if (speed < 75) return 'Y';      // 50% position maps to 'Y'
+    return 'X';                       // 100% position maps to 'X'
 };
 const DEFAULT_ACTIVE_MODE: VmcMode = 'Y'; // Default mode when turning fan ON
 
@@ -69,9 +69,10 @@ export class VmcAccessory {
 
         this.service.getCharacteristic(this.platform.Characteristic.RotationSpeed)
              .setProps({
-                 minValue: 0,   // Keep 0 for UI purposes, map it to 'V'
-                 maxValue: 100,
-                 minStep: 1,    // Allow smooth slider
+                 minValue: 0,     // 0% for V mode (OFF)
+                 maxValue: 100,   // 100% for X mode
+                 minStep: 50,     // Force exactly 3 positions: 0%, 50%, 100%
+                 validValues: [0, 50, 100] // Explicitly define the only valid values
              })
              .onGet(this.handleRotationSpeedGet.bind(this))
              .onSet(this.handleRotationSpeedSet.bind(this));
@@ -128,7 +129,7 @@ export class VmcAccessory {
              this.log.warn(`Cannot get active state for ${this.accessory.displayName}: Device ID not available.`);
              throw new this.platform.api.hap.HapStatusError(this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
         }
-        // Determine active state based on cached mode
+        // V mode is now considered OFF (inactive)
         const isActiveState = this.currentMode !== 'V';
         const state = isActiveState ? this.platform.Characteristic.Active.ACTIVE : this.platform.Characteristic.Active.INACTIVE;
         this.log.debug(`GET Active for ${this.accessory.displayName}: Returning ${state} (Mode: ${this.currentMode})`);
