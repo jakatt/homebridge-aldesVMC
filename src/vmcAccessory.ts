@@ -23,6 +23,8 @@ export class VmcAccessory {
     private deviceId: string | null = null;
     private currentMode: VmcMode = 'V'; // Default to 'V' initially
     private isSelfControlled = false; // Track if VMC is in SELF_CONTROLLED mode
+    private pollingInterval: NodeJS.Timeout | null = null; // For status polling
+    private lastMode: VmcMode | null = null; // Track last mode to detect changes
 
     constructor(
         private readonly platform: AldesVMCPlatform,
@@ -91,6 +93,73 @@ export class VmcAccessory {
         this.log.info(`VMC Accessory ${this.accessory.displayName} initialized with Device ID: ${this.deviceId}`);
         // Perform an initial status fetch to populate cache
         await this.refreshStatus();
+        
+        // Start polling for status updates
+        this.startPolling();
+    }
+    
+    // Set up polling mechanism to detect external changes
+    startPolling() {
+        if (this.pollingInterval) {
+            clearInterval(this.pollingInterval);
+        }
+        
+        // Poll every 30 seconds (can be adjusted based on your needs)
+        const pollIntervalMs = 30 * 1000;
+        
+        this.log.info(`Starting polling for external changes every ${pollIntervalMs/1000} seconds...`);
+        
+        this.pollingInterval = setInterval(async () => {
+            await this.checkForExternalChanges();
+        }, pollIntervalMs);
+        
+        // Make sure polling stops when homebridge shuts down
+        this.platform.api.on('shutdown', () => {
+            if (this.pollingInterval) {
+                clearInterval(this.pollingInterval);
+                this.pollingInterval = null;
+                this.log.debug('Polling stopped due to homebridge shutdown');
+            }
+        });
+    }
+    
+    async checkForExternalChanges() {
+        if (!this.deviceId) return;
+        
+        try {
+            const status = await this.aldesApi.getDeviceStatus(this.deviceId);
+            if (!status || !status.mode) {
+                this.log.debug('Polling skipped: Could not get valid device status');
+                return;
+            }
+            
+            const newMode = status.mode;
+            const newSelfControlled = status.isSelfControlled;
+            
+            // Check if anything changed
+            const modeChanged = this.currentMode !== newMode;
+            const selfControlledChanged = this.isSelfControlled !== newSelfControlled;
+            
+            if (modeChanged || selfControlledChanged) {
+                this.log.info(`External change detected: Mode ${this.currentMode} → ${newMode}, SelfControlled ${this.isSelfControlled} → ${newSelfControlled}`);
+                
+                // Update our internal state
+                this.currentMode = newMode;
+                this.isSelfControlled = newSelfControlled;
+                
+                // Update HomeKit
+                const isActiveState = this.currentMode !== 'V';
+                const currentSpeed = AldesModeToSpeed[this.currentMode];
+                const currentActiveState = isActiveState ? 
+                    this.platform.Characteristic.Active.ACTIVE : 
+                    this.platform.Characteristic.Active.INACTIVE;
+                
+                this.service.updateCharacteristic(this.platform.Characteristic.Active, currentActiveState);
+                this.service.updateCharacteristic(this.platform.Characteristic.RotationSpeed, currentSpeed);
+            }
+        } catch (error) {
+            this.log.error(`Error checking for external changes: ${error}`);
+        }
     }
 
     // Method to fetch current status and update cache + HomeKit state
