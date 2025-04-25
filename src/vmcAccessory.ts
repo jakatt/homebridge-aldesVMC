@@ -22,7 +22,7 @@ export class VmcAccessory {
     private service: Service;
     private deviceId: string | null = null;
     private currentMode: VmcMode = 'V'; // Default to 'V' initially
-    // isActive is now derived directly from currentMode !== 'V'
+    private isSelfControlled = false; // Track if VMC is in SELF_CONTROLLED mode
 
     constructor(
         private readonly platform: AldesVMCPlatform,
@@ -99,19 +99,26 @@ export class VmcAccessory {
 
         this.log.debug(`Refreshing status for ${this.accessory.displayName}...`);
         try {
-            const mode = await this.aldesApi.getCurrentMode(this.deviceId);
-            if (mode) { // Only update if API returns a valid mode
-                this.currentMode = mode;
+            const status = await this.aldesApi.getDeviceStatus(this.deviceId);
+            if (!status) {
+                this.log.warn(`[Refresh] Failed to get device status. Keeping cached values.`);
+                return;
+            }
+
+            // Update self-controlled state
+            this.isSelfControlled = status.isSelfControlled;
+            
+            if (status.mode) {
+                this.currentMode = status.mode;
             } else {
                 this.log.warn(`[Refresh] Received null/undefined mode from API. Keeping cached mode: ${this.currentMode}`);
-                // Optionally handle error state here, e.g., set to 'V' or throw error
             }
 
             const isActiveState = this.currentMode !== 'V'; // Active if mode is Y or X
             const currentSpeed = AldesModeToSpeed[this.currentMode];
             const currentActiveState = isActiveState ? this.platform.Characteristic.Active.ACTIVE : this.platform.Characteristic.Active.INACTIVE;
 
-            this.log.debug(`Refreshed Status - Mode: ${this.currentMode}, ActiveState: ${currentActiveState}, Speed: ${currentSpeed}`);
+            this.log.debug(`Refreshed Status - Mode: ${this.currentMode}, ActiveState: ${currentActiveState}, Speed: ${currentSpeed}, SelfControlled: ${this.isSelfControlled}`);
 
             // Update HomeKit state non-blockingly
             this.service.updateCharacteristic(this.platform.Characteristic.Active, currentActiveState);
@@ -119,10 +126,8 @@ export class VmcAccessory {
 
         } catch (error) {
             this.log.error(`Error refreshing status for ${this.accessory.displayName}: ${error}`);
-            // Optionally update HomeKit to show an error state?
         }
     }
-
 
     async handleActiveGet(): Promise<CharacteristicValue> {
         if (!this.deviceId) {
@@ -141,6 +146,26 @@ export class VmcAccessory {
             this.log.warn(`Cannot set active state for ${this.accessory.displayName}: Device ID not available.`);
             throw new this.platform.api.hap.HapStatusError(this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
         }
+        
+        // Check if VMC is in SELF_CONTROLLED mode
+        if (this.isSelfControlled) {
+            this.log.warn(`Cannot change ${this.accessory.displayName} mode: Device is in SELF_CONTROLLED (force) mode.`);
+            
+            // Reset characteristic to current value and inform user about restriction
+            const currentActiveState = this.currentMode !== 'V' ? 
+                this.platform.Characteristic.Active.ACTIVE : 
+                this.platform.Characteristic.Active.INACTIVE;
+            
+            setTimeout(() => {
+                this.service.updateCharacteristic(this.platform.Characteristic.Active, currentActiveState);
+            }, 100);
+            
+            // Only pass the status code to match the expected signature
+            throw new this.platform.api.hap.HapStatusError(
+                this.platform.api.hap.HAPStatus.NOT_ALLOWED_IN_CURRENT_STATE
+            );
+        }
+        
         const targetActiveState = value as number; // ACTIVE or INACTIVE
         const targetIsActive = targetActiveState === this.platform.Characteristic.Active.ACTIVE;
         this.log.debug(`SET Active for ${this.accessory.displayName} to: ${targetActiveState} (${targetIsActive})`);
@@ -199,6 +224,24 @@ export class VmcAccessory {
             this.log.warn(`Cannot set speed for ${this.accessory.displayName}: Device ID not available.`);
             throw new this.platform.api.hap.HapStatusError(this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
         }
+        
+        // Check if VMC is in SELF_CONTROLLED mode
+        if (this.isSelfControlled) {
+            this.log.warn(`Cannot change ${this.accessory.displayName} speed: Device is in SELF_CONTROLLED (force) mode.`);
+            
+            // Reset characteristic to current value and inform user about restriction
+            const currentSpeed = AldesModeToSpeed[this.currentMode];
+            
+            setTimeout(() => {
+                this.service.updateCharacteristic(this.platform.Characteristic.RotationSpeed, currentSpeed);
+            }, 100);
+            
+            // Only pass the status code to match the expected signature
+            throw new this.platform.api.hap.HapStatusError(
+                this.platform.api.hap.HAPStatus.NOT_ALLOWED_IN_CURRENT_STATE
+            );
+        }
+        
         const speed = value as number;
         this.log.debug(`SET RotationSpeed for ${this.accessory.displayName} to: ${speed}`);
 

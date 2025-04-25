@@ -38,6 +38,11 @@ interface AldesApiConfig {
 
 export type VmcMode = 'V' | 'Y' | 'X';
 
+export interface AldesDeviceStatus {
+    isSelfControlled: boolean;
+    mode: VmcMode | null;
+}
+
 // --- AldesAPI Class ---
 export class AldesAPI {
     private readonly config: AldesApiConfig;
@@ -178,35 +183,38 @@ export class AldesAPI {
         }
     }
 
-    public async getCurrentMode(deviceId: string): Promise<VmcMode | null> {
+    public async getDeviceStatus(deviceId: string): Promise<AldesDeviceStatus | null> {
         const token = await this.getToken();
         if (!token) {
-            this.log.error('Cannot get current mode: No valid token.');
+            this.log.error('Cannot get device status: No valid token.');
             return null;
         }
         if (!deviceId) {
-             this.log.error('Cannot get current mode: Device ID is missing.');
+             this.log.error('Cannot get device status: Device ID is missing.');
              return null;
         }
 
-        this.log.debug(`Getting current mode for device ${deviceId}...`);
+        this.log.debug(`Getting device status for ${deviceId}...`);
         const url = `${BASE_API_URL}/users/me/products/${deviceId}`;
         try {
             const response = await this.httpClient.get<AldesDeviceDetails>(url, {
                 headers: { 'Authorization': `Bearer ${token}` },
             });
 
+            // Look for both the MODE and SELF_CONTROLLED indicators
             const modeIndicator = response.data?.indicators?.find((ind: AldesIndicator) => ind.type === 'MODE');
-            if (modeIndicator && ['V', 'Y', 'X'].includes(modeIndicator.value)) {
-                this.log.debug(`Current device mode reported: ${modeIndicator.value}`);
-                return modeIndicator.value as VmcMode;
-            } else {
-                this.log.warn(`Could not find valid MODE indicator in device data for ${deviceId}.`);
-                this.log.debug(`Received device data: ${JSON.stringify(response.data)}`);
-                return null;
-            }
+            const selfControlledIndicator = response.data?.indicators?.find((ind: AldesIndicator) => ind.type === 'SELF_CONTROLLED');
+            
+            const status: AldesDeviceStatus = {
+                isSelfControlled: selfControlledIndicator?.value === true,
+                mode: modeIndicator && ['V', 'Y', 'X'].includes(modeIndicator.value) ? 
+                      modeIndicator.value as VmcMode : null
+            };
+
+            this.log.debug(`Device status: Mode=${status.mode}, SelfControlled=${status.isSelfControlled}`);
+            return status;
         } catch (error: unknown) {
-            this.log.error(`Failed to get current mode for ${deviceId}: ${this.formatError(error)}`);
+            this.log.error(`Failed to get device status for ${deviceId}: ${this.formatError(error)}`);
              if (axios.isAxiosError(error) && error.response?.status === 401) {
                 this.log.warn('Token might be invalid (401 Unauthorized). Clearing cached token.');
                 this.currentToken = null;
@@ -216,7 +224,25 @@ export class AldesAPI {
         }
     }
 
+    public async getCurrentMode(deviceId: string): Promise<VmcMode | null> {
+        // We can leverage the getDeviceStatus method now
+        const status = await this.getDeviceStatus(deviceId);
+        return status?.mode || null;
+    }
+
+    public async isSelfControlled(deviceId: string): Promise<boolean> {
+        const status = await this.getDeviceStatus(deviceId);
+        return status?.isSelfControlled || false;
+    }
+
     public async setVmcMode(deviceId: string, mode: VmcMode): Promise<boolean> {
+        // First check if device is in self-controlled mode
+        const isSelfControlledMode = await this.isSelfControlled(deviceId);
+        if (isSelfControlledMode) {
+            this.log.warn(`Cannot set mode to ${mode}: Device is in SELF_CONTROLLED (force) mode.`);
+            return false;
+        }
+
         const token = await this.getToken();
          if (!token) {
             this.log.error(`Cannot set mode to ${mode}: No valid token.`);
