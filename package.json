@@ -1,6 +1,7 @@
 {
-  "name": "homebridge-aldesVMC",
-  "version": "1.0.0",
+  "name": "homebridge-aldesvmc",
+  "version": "1.0.2",
+  "type": "module",
   "description": "A Homebridge plugin to control Aldes VMC modes via the AldesConnect API.",
   "main": "dist/index.js",
   "scripts": {
@@ -8,7 +9,8 @@
     "build": "npm run clean && tsc",
     "test": "echo \"Error: no test specified\" && exit 1",
     "lint": "eslint .",
-    "prepare": "npm run build"
+    "prepare": "npm run build",
+    "prepublishOnly": "npm run lint"
   },
   "keywords": [
     "homebridge-plugin",
@@ -19,19 +21,19 @@
     "AldesConnect"
   ],
   "author": {
-    "name": "Your Name or GitHub Username",
-    "email": "your.email@example.com",
-    "url": "https://github.com/your-github-username"
+    "name": "Jakatt",
+    "email": "jacques.cattelin@gmail.com",
+    "url": "https://github.com/jakatt"
   },
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-github-username/homebridge-aldesVMC.git"
+    "url": "git+https://github.com/jakatt/homebridge-aldesVMC.git"
   },
   "bugs": {
-    "url": "https://github.com/your-github-username/homebridge-aldesVMC/issues"
+    "url": "https://github.com/jakatt/homebridge-aldesVMC/issues"
   },
-  "homepage": "https://github.com/your-github-username/homebridge-aldesVMC#readme",
+  "homepage": "https://github.com/jakatt/homebridge-aldesVMC#readme",
   "files": [
     "dist",
     "LICENSE",
@@ -42,7 +44,9 @@
     "axios": "^1.8.4"
   },
   "devDependencies": {
-    "eslint": "^7.0.0",
+    "eslint": "^9.0.0",
+    "@eslint/js": "^9.0.0",
+    "typescript-eslint": "^8.0.0",
     "ts-node": "^10.0.0",
     "homebridge": "^1.3.0",
     "typescript": "^4.0.0",

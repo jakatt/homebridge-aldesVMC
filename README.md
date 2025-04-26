@@ -9,12 +9,11 @@ This is a Homebridge plugin for controlling Aldes Ventilation Units (VMC) that a
 ## Features
 
 *   Exposes the Aldes VMC as a Fan accessory in HomeKit.
-*   Allows setting ventilation modes (Vacation/Minimum, Daily/Auto, Boost/Maximum) by adjusting the fan speed in the Home app:
-    *   Off: Sets mode 'V' (Vacation/Minimum)
-    *   1-33%: Sets mode 'V' (Vacation/Minimum)
-    *   34-66%: Sets mode 'Y' (Daily/Auto)
-    *   67-100%: Sets mode 'X' (Boost/Maximum)
-*   Reports the current VMC mode as the fan speed.
+*   Allows setting ventilation modes by adjusting the fan speed in the Home app:
+    *   0% (Off): Sets mode 'V' (Minimum/Daily)
+    *   50%: Sets mode 'Y' (Boost)
+    *   100%: Sets mode 'X' (Guests)
+*   Reports the current VMC mode as the fan speed (0%, 50%, or 100%).
 *   Handles Aldes API token acquisition and refresh automatically.
 
 ## Installation
@@ -51,7 +50,7 @@ Add the following platform block to your `config.json` within the `platforms` ar
 ## Notes
 
 *   This plugin does not currently support polling. The status in HomeKit will update when you control the device via HomeKit or when Homebridge restarts. If you control the VMC via the Aldes app or other means, HomeKit may show an outdated status.
-*   The mapping between HomeKit fan speeds and Aldes modes ('V', 'Y', 'X') is based on common interpretations.
+*   The mapping between HomeKit fan speeds (0%, 50%, 100%) and Aldes modes ('V', 'Y', 'X') is defined in the plugin code.
 
 ## License
 

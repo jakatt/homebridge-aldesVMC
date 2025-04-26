@@ -1,8 +1,8 @@
 import { API, DynamicPlatformPlugin, Logger, PlatformAccessory, PlatformConfig, Service, Characteristic } from 'homebridge';
 
-import { PLATFORM_NAME, PLUGIN_NAME } from './settings';
-import { VmcAccessory } from './vmcAccessory'; // Ensure this import is correct
-import { AldesAPI } from './aldes_api'; // Import AldesAPI
+import { PLATFORM_NAME, PLUGIN_NAME } from './settings.js'; // Add .js extension
+import { VmcAccessory } from './vmcAccessory.js'; // Add .js extension
+import { AldesAPI } from './aldes_api.js'; // Add .js extension
 
 export class AldesVMCPlatform implements DynamicPlatformPlugin {
   public readonly Service: typeof Service = this.api.hap.Service;

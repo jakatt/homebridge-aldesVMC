@@ -1,4 +1,4 @@
-import axios, { AxiosInstance, AxiosError } from 'axios';
+import axios, { AxiosInstance /*, AxiosError */ } from 'axios'; // Removed unused AxiosError
 import fs from 'fs/promises';
 import path from 'path';
 import { Logger } from 'homebridge';
@@ -21,7 +21,7 @@ interface AldesProduct {
 
 interface AldesIndicator {
     type: string;
-    value: any;
+    value: unknown; // Changed from any to unknown
     date?: string;
 }
 
@@ -75,11 +75,14 @@ export class AldesAPI {
             this.log.debug('Token loaded successfully from file.');
             this.currentToken = tokenData.access_token;
             return this.currentToken;
-        } catch (error: any) {
-            if (error.code === 'ENOENT') {
+        } catch (error: unknown) { // Changed from any to unknown
+            // Type guard for error code
+            if (error instanceof Error && 'code' in error && (error as { code: string }).code === 'ENOENT') {
                 this.log.debug('Token file not found.');
-            } else {
+            } else if (error instanceof Error) {
                 this.log.error(`Failed to load token from file: ${error.message}`);
+            } else {
+                 this.log.error(`Failed to load token from file: ${String(error)}`);
             }
             this.currentToken = null;
             return null;
@@ -90,8 +93,12 @@ export class AldesAPI {
         try {
             await fs.writeFile(this.tokenFilePath, JSON.stringify(tokenData), 'utf-8');
             this.log.debug('Token saved successfully to file.');
-        } catch (error: any) {
-            this.log.error(`Failed to save token to file: ${error.message}`);
+        } catch (error: unknown) { // Changed from any to unknown
+             if (error instanceof Error) {
+                this.log.error(`Failed to save token to file: ${error.message}`);
+            } else {
+                 this.log.error(`Failed to save token to file: ${String(error)}`);
+            }
         }
     }
 
@@ -207,7 +214,7 @@ export class AldesAPI {
             
             const status: AldesDeviceStatus = {
                 isSelfControlled: selfControlledIndicator?.value === true,
-                mode: modeIndicator && ['V', 'Y', 'X'].includes(modeIndicator.value) ? 
+                mode: modeIndicator && typeof modeIndicator.value === 'string' && ['V', 'Y', 'X'].includes(modeIndicator.value) ?
                       modeIndicator.value as VmcMode : null
             };
 

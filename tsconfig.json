@@ -1,8 +1,9 @@
 {
   "compilerOptions": {
-    "target": "ES2018",
-    "module": "commonjs",
-    "lib": ["ES2018", "DOM"],
+    "target": "ES2020", // Target modern ES version
+    "module": "NodeNext", // Use Node's modern module resolution
+    "moduleResolution": "NodeNext", // Explicitly set module resolution
+    "lib": ["ES2020", "DOM"],
     "outDir": "./dist",
     "rootDir": "./src",
     "strict": true,

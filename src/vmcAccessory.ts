@@ -1,22 +1,27 @@
-import { Service, PlatformAccessory, CharacteristicValue, Logger, Characteristic } from 'homebridge'; // Ensure Characteristic is imported
-import { AldesVMCPlatform } from './platform';
-import { AldesAPI, VmcMode } from './aldes_api';
+import { Service, PlatformAccessory, CharacteristicValue, Logger } from 'homebridge';
+import { AldesVMCPlatform } from './platform.js'; // Add .js extension
+import { AldesAPI, VmcMode } from './aldes_api.js'; // Add .js extension
+
+// Define a type for Service constructors that have a static UUID
+type ServiceConstructorWithUUID = typeof Service & { UUID: string };
 
 // --- Constants for Aldes Modes to HomeKit Fan States ---
 // Map Aldes modes to HomeKit RotationSpeed percentages
 const AldesModeToSpeed: Record<VmcMode, number> = {
-    'V': 0,   // Standard/Vacation (represents OFF state speed)
-    'Y': 50,  // Boost/Daily (middle position)
-    'X': 100, // Guests/Max (highest position)
+    'V': 0,   // Minimum/Daily (represents OFF state speed)
+    'Y': 50,  // Boost (middle position)
+    'X': 100, // Guests (highest position)
 };
 // Map HomeKit RotationSpeed percentages back to Aldes modes
 const SpeedToAldesMode = (speed: number): VmcMode => {
-    // Exact 3-position logic
-    if (speed < 25) return 'V';      // 0% position maps to 'V'
-    if (speed < 75) return 'Y';      // 50% position maps to 'Y'
-    return 'X';                       // 100% position maps to 'X'
+    // Use exact values due to validValues constraint
+    if (speed === 0) return 'V';
+    if (speed === 50) return 'Y';
+    if (speed === 100) return 'X';
+    // Default fallback (shouldn't be reached with validValues)
+    return 'V';
 };
-const DEFAULT_ACTIVE_MODE: VmcMode = 'Y'; // Default mode when turning fan ON
+const DEFAULT_ACTIVE_MODE: VmcMode = 'Y'; // Default mode when turning fan ON remains Boost ('Y')
 
 export class VmcAccessory {
     private service: Service;
@@ -38,14 +43,15 @@ export class VmcAccessory {
             .setCharacteristic(this.platform.Characteristic.SerialNumber, this.accessory.UUID);
 
         // --- Remove Old/Unwanted Services ---
-        const servicesToRemove: (typeof Service)[] = [
+        // Use the more specific type for the array
+        const servicesToRemove: ServiceConstructorWithUUID[] = [
             this.platform.Service.Switch,
             this.platform.Service.Outlet,
             this.platform.Service.Thermostat,
         ];
         servicesToRemove.forEach(serviceType => {
-            // Cast serviceType to 'any' to bypass strict type checking for static UUID access
-            const serviceUUID = (serviceType as any).UUID;
+            // Access UUID directly from the specific service class constructor
+            const serviceUUID = serviceType.UUID;
             if (!serviceUUID) {
                 this.log.warn(`Could not find UUID for service type ${serviceType.name}. Skipping removal.`);
                 return; // Skip if UUID can't be found
@@ -273,6 +279,7 @@ export class VmcAccessory {
 
         } catch (error) {
             this.log.error(`Error setting mode to ${targetMode} for ${this.accessory.displayName}: ${error}`);
+            // Trigger a refresh to get the actual current state after failure
             setTimeout(() => this.refreshStatus(), 1000); // Refresh after 1s
             throw new this.platform.api.hap.HapStatusError(this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
         }
