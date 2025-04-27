@@ -37,17 +37,16 @@ export class AirQualitySensorAccessory {
             this.service.getCharacteristic(this.platform.Characteristic.PM2_5Density)
                 .onGet(this.handlePM25DensityGet.bind(this));
         } else { // CO2 sensor
-            this.log.info('Initializing CO2 sensor accessory with ALWAYS DETECTED state');
+            this.log.info('Initializing CO2 sensor accessory with NORMAL state');
             this.service = this.accessory.getService(this.platform.Service.CarbonDioxideSensor) || 
                            this.accessory.addService(this.platform.Service.CarbonDioxideSensor);
             
             this.service.setCharacteristic(this.platform.Characteristic.Name, accessory.displayName);
             
-            // *** IMPORTANT: Override the default behavior for CO2 detection ***
-            // Always set CO2 to ABNORMAL initially to ensure it shows up as "Detected" in HomeKit
+            // Set CO2 to NORMAL by default so it doesn't show as an alert
             this.service.setCharacteristic(
                 this.platform.Characteristic.CarbonDioxideDetected,
-                1  // Force to 1 (ABNORMAL) which shows as "detected" in HomeKit
+                0  // 0 = NORMAL, 1 = ABNORMAL
             );
             
             // Set initial CO2 level
@@ -57,8 +56,14 @@ export class AirQualitySensorAccessory {
                 this.currentCO2Level
             );
             
-            // Remove onGet handlers and use direct values instead
-            this.log.info('CO2 sensor forced to "Detected" state with direct value setting');
+            // Configure the get handlers
+            this.service.getCharacteristic(this.platform.Characteristic.CarbonDioxideDetected)
+                .onGet(this.handleCO2DetectedGet.bind(this));
+            
+            this.service.getCharacteristic(this.platform.Characteristic.CarbonDioxideLevel)
+                .onGet(this.handleCO2LevelGet.bind(this));
+            
+            this.log.info('CO2 sensor initialized with NORMAL state');
         }
 
         this.initializeDevice();
@@ -121,15 +126,6 @@ export class AirQualitySensorAccessory {
             const status = await this.aldesApi.getDeviceStatus(this.deviceId);
             if (!status) {
                 this.log.warn(`[Refresh] Failed to get device status for ${this.sensorType} sensor`);
-                
-                // Ensure CO2 sensor always shows a detection state even on API failures
-                if (this.sensorType === 'co2') {
-                    this.service.updateCharacteristic(
-                        this.platform.Characteristic.CarbonDioxideDetected,
-                        1  // Force to 1 (ABNORMAL) which shows as "detected" in HomeKit
-                    );
-                    this.log.info('CO2 sensor forced to "Detected" state due to API failure');
-                }
                 return;
             }
 
@@ -160,46 +156,49 @@ export class AirQualitySensorAccessory {
                     this.currentCO2Level
                 );
                 
-                // CRITICAL: Always force detection state to ABNORMAL to ensure it shows as "Detected" in HomeKit
+                // Only show abnormal if CO2 levels are actually high
+                const isHighCO2 = this.currentCO2Level > 1000;
+                const detectedState = isHighCO2 ? 
+                    this.platform.Characteristic.CarbonDioxideDetected.CO2_LEVELS_ABNORMAL : 
+                    this.platform.Characteristic.CarbonDioxideDetected.CO2_LEVELS_NORMAL;
+                
                 this.service.updateCharacteristic(
-                    this.platform.Characteristic.CarbonDioxideDetected,
-                    1  // Hard-coded to 1 (ABNORMAL) to force "Detected" state in HomeKit
+                    this.platform.Characteristic.CarbonDioxideDetected, 
+                    detectedState
                 );
                 
-                this.log.info(`CO2 sensor updated with FORCED detected state: level=${this.currentCO2Level} ppm, detected=ABNORMAL`);
-            } else if (this.sensorType === 'co2') {
-                this.log.warn('CO2 level not found in device status');
-                
-                // Force detection even if CO2 level is missing
-                this.service.updateCharacteristic(
-                    this.platform.Characteristic.CarbonDioxideDetected,
-                    1  // Force to 1 (ABNORMAL) which shows as "detected" in HomeKit
-                );
-                this.log.info('CO2 sensor forced to "Detected" state due to missing data');
+                this.log.info(`CO2 sensor updated: level=${this.currentCO2Level} ppm, detected=${isHighCO2 ? 'ABNORMAL' : 'NORMAL'}`);
             }
         } catch (error) {
             this.log.error(`Error refreshing status for ${this.sensorType} sensor: ${error}`);
-            
-            // Ensure CO2 sensor maintains detected state even on errors
-            if (this.sensorType === 'co2') {
-                this.service.updateCharacteristic(
-                    this.platform.Characteristic.CarbonDioxideDetected,
-                    1  // Force to 1 (ABNORMAL) which shows as "detected" in HomeKit
-                );
-                this.log.info('CO2 sensor forced to "Detected" state due to error');
-            }
         }
     }
 
     // Air Quality conversion method
-    mapAirQualityToHomeKit(airQualityPercent: number): number {
-        // Convert percentage (where 100% is best) to HomeKit AirQuality levels:
+    mapAirQualityToHomeKit(airQualityValue: number): number {
+        // Handle Aldes VMC air quality scale (seems to be 0-100 where lower is better)
+        // HomeKit AirQuality levels:
         // 1 = EXCELLENT, 2 = GOOD, 3 = FAIR, 4 = INFERIOR, 5 = POOR
-        if (airQualityPercent >= 90) return 1; // EXCELLENT
-        if (airQualityPercent >= 70) return 2; // GOOD
-        if (airQualityPercent >= 50) return 3; // FAIR
-        if (airQualityPercent >= 30) return 4; // INFERIOR
-        return 5; // POOR
+        
+        // Check if the value is likely using the Aldes scale (typically reporting values under 40)
+        if (airQualityValue <= 100) {
+            this.log.debug(`Converting Aldes air quality value ${airQualityValue} to HomeKit scale`);
+            
+            // Aldes scale: lower numbers are better air quality
+            if (airQualityValue <= 10) return 1; // EXCELLENT
+            if (airQualityValue <= 20) return 2; // GOOD
+            if (airQualityValue <= 35) return 3; // FAIR
+            if (airQualityValue <= 50) return 4; // INFERIOR
+            return 5; // POOR
+        } else {
+            // Fallback to original percentage-based logic
+            this.log.debug(`Using percentage-based air quality conversion for value ${airQualityValue}`);
+            if (airQualityValue >= 90) return 1; // EXCELLENT
+            if (airQualityValue >= 70) return 2; // GOOD
+            if (airQualityValue >= 50) return 3; // FAIR
+            if (airQualityValue >= 30) return 4; // INFERIOR
+            return 5; // POOR
+        }
     }
 
     // Rough estimate of PM2.5 based on air quality percentage
