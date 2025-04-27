@@ -5,6 +5,7 @@ import { VmcAccessory } from './vmcAccessory.js'; // Add .js extension
 import { AldesAPI } from './aldes_api.js'; // Add .js extension
 import { AirQualitySensorAccessory } from './airQualitySensorAccessory.js'; // Import air quality sensor
 import { ClimateSensorAccessory } from './climateAccessory.js'; // Import climate sensor
+import { ForceModeAccessory } from './forceModeAccessory.js'; // Import force mode accessory
 
 export class AldesVMCPlatform implements DynamicPlatformPlugin {
   public readonly Service: typeof Service = this.api.hap.Service;
@@ -73,29 +74,53 @@ export class AldesVMCPlatform implements DynamicPlatformPlugin {
     const co2SensorName = `${vmcName} CO₂ Level`;
     const temperatureSensorName = `${vmcName} Temperature`;
     const humiditySensorName = `${vmcName} Humidity`;
+    const forceModeIndicatorName = `${vmcName} Force Mode`;
     
     const airQualityUuid = this.api.hap.uuid.generate(PLUGIN_NAME + airQualitySensorName);
     const co2Uuid = this.api.hap.uuid.generate(PLUGIN_NAME + co2SensorName);
     const temperatureUuid = this.api.hap.uuid.generate(PLUGIN_NAME + temperatureSensorName);
     const humidityUuid = this.api.hap.uuid.generate(PLUGIN_NAME + humiditySensorName);
+    const forceModeUuid = this.api.hap.uuid.generate(PLUGIN_NAME + forceModeIndicatorName);
+
+    // Create a shared VMC controller instance
+    let vmcController: VmcAccessory | undefined;
 
     // VMC Fan Accessory
     const existingAccessory = this.accessories.find(accessory => accessory.UUID === uuid);
     if (existingAccessory) {
       this.log.info('Restoring existing accessory from cache:', existingAccessory.displayName);
       // Create the VmcAccessory instance for the restored accessory
-      new VmcAccessory(this, existingAccessory, this.log, this.aldesApi);
+      vmcController = new VmcAccessory(this, existingAccessory, this.log, this.aldesApi);
     } else {
       this.log.info('Adding new accessory:', vmcName);
       // Create a new accessory
       const accessory = new this.api.platformAccessory(vmcName, uuid);
 
       // Create the VmcAccessory instance for the new accessory
-      new VmcAccessory(this, accessory, this.log, this.aldesApi);
+      vmcController = new VmcAccessory(this, accessory, this.log, this.aldesApi);
 
       // Link the accessory to your platform
       this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
       this.accessories.push(accessory); // Add to internal list
+    }
+
+    // Create Force Mode Indicator Accessory (as a Contact Sensor) 
+    const existingForceModeAccessory = this.accessories.find(accessory => accessory.UUID === forceModeUuid);
+    if (existingForceModeAccessory) {
+      this.log.info('Restoring existing Force Mode indicator from cache:', existingForceModeAccessory.displayName);
+      
+      // Create the ForceModeAccessory instance for the restored accessory
+      new ForceModeAccessory(this, existingForceModeAccessory, this.log, this.aldesApi!);
+    } else {
+      this.log.info('Adding new Force Mode indicator:', forceModeIndicatorName);
+      const forceModeAccessory = new this.api.platformAccessory(forceModeIndicatorName, forceModeUuid);
+      
+      // Create the ForceModeAccessory instance for the new accessory
+      new ForceModeAccessory(this, forceModeAccessory, this.log, this.aldesApi!);
+      
+      // Register the accessory
+      this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [forceModeAccessory]);
+      this.accessories.push(forceModeAccessory);
     }
 
     // Check if sensors should be enabled (default to true if not specified)

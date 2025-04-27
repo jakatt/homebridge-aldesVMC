@@ -48,6 +48,7 @@ export class VmcAccessory {
             this.platform.Service.Switch,
             this.platform.Service.Outlet,
             this.platform.Service.Thermostat,
+            this.platform.Service.ContactSensor, // Remove any old force mode sensors
         ];
         servicesToRemove.forEach(serviceType => {
             // Access UUID directly from the specific service class constructor
@@ -153,7 +154,7 @@ export class VmcAccessory {
                 this.currentMode = newMode;
                 this.isSelfControlled = newSelfControlled;
                 
-                // Update HomeKit
+                // Update HomeKit fan state
                 const isActiveState = this.currentMode !== 'V';
                 const currentSpeed = AldesModeToSpeed[this.currentMode];
                 const currentActiveState = isActiveState ? 
@@ -226,7 +227,7 @@ export class VmcAccessory {
         if (this.isSelfControlled) {
             this.log.warn(`Cannot change ${this.accessory.displayName} mode: Device is in SELF_CONTROLLED (force) mode.`);
             
-            // Reset characteristic to current value and inform user about restriction
+            // Reset characteristic to current value without throwing an error
             const currentActiveState = this.currentMode !== 'V' ? 
                 this.platform.Characteristic.Active.ACTIVE : 
                 this.platform.Characteristic.Active.INACTIVE;
@@ -235,10 +236,8 @@ export class VmcAccessory {
                 this.service.updateCharacteristic(this.platform.Characteristic.Active, currentActiveState);
             }, 100);
             
-            // Only pass the status code to match the expected signature
-            throw new this.platform.api.hap.HapStatusError(
-                this.platform.api.hap.HAPStatus.NOT_ALLOWED_IN_CURRENT_STATE
-            );
+            // Return without throwing an error - this keeps the accessory responsive in HomeKit
+            return;
         }
         
         const targetActiveState = value as number; // ACTIVE or INACTIVE
@@ -305,17 +304,14 @@ export class VmcAccessory {
         if (this.isSelfControlled) {
             this.log.warn(`Cannot change ${this.accessory.displayName} speed: Device is in SELF_CONTROLLED (force) mode.`);
             
-            // Reset characteristic to current value and inform user about restriction
+            // Reset characteristic to current value without throwing an error
             const currentSpeed = AldesModeToSpeed[this.currentMode];
-            
             setTimeout(() => {
                 this.service.updateCharacteristic(this.platform.Characteristic.RotationSpeed, currentSpeed);
             }, 100);
             
-            // Only pass the status code to match the expected signature
-            throw new this.platform.api.hap.HapStatusError(
-                this.platform.api.hap.HAPStatus.NOT_ALLOWED_IN_CURRENT_STATE
-            );
+            // Return without throwing an error - this keeps the accessory responsive in HomeKit
+            return;
         }
         
         const speed = value as number;
