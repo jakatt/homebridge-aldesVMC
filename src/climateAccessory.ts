@@ -2,6 +2,10 @@ import { Service, PlatformAccessory, CharacteristicValue, Logger } from 'homebri
 import { AldesVMCPlatform } from './platform.js';
 import { AldesAPI } from './aldes_api.js';
 
+// Define the sensor types and locations
+type SensorType = 'temperature' | 'humidity';
+type SensorLocation = 'main' | 'ba1' | 'ba2';  // main = Kitchen, ba1 = Bathroom1, ba2 = Bathroom2
+
 export class ClimateSensorAccessory {
     private service: Service;
     private deviceId: string | null = null;
@@ -14,13 +18,14 @@ export class ClimateSensorAccessory {
         private readonly accessory: PlatformAccessory,
         private readonly log: Logger,
         private readonly aldesApi: AldesAPI,
-        private readonly sensorType: 'temperature' | 'humidity',
+        private readonly sensorType: SensorType,
+        private readonly sensorLocation: SensorLocation = 'main',
     ) {
         // Set accessory information
         this.accessory.getService(this.platform.Service.AccessoryInformation)!
             .setCharacteristic(this.platform.Characteristic.Manufacturer, 'Aldes')
             .setCharacteristic(this.platform.Characteristic.Model, 
-                sensorType === 'temperature' ? 'VMC Temperature Sensor' : 'VMC Humidity Sensor')
+                `VMC ${sensorType === 'temperature' ? 'Temperature' : 'Humidity'} Sensor ${this.getLocationName()}`)
             .setCharacteristic(this.platform.Characteristic.SerialNumber, this.accessory.UUID);
 
         // Create the sensor service based on sensor type
@@ -52,13 +57,23 @@ export class ClimateSensorAccessory {
         this.initializeDevice();
     }
 
+    // Helper method to get human-readable location names
+    private getLocationName(): string {
+        switch (this.sensorLocation) {
+            case 'main': return 'Kitchen';
+            case 'ba1': return 'Bathroom1';
+            case 'ba2': return 'Bathroom2';
+            default: return this.sensorLocation;
+        }
+    }
+
     async initializeDevice() {
         this.deviceId = await this.aldesApi.getDeviceId();
         if (!this.deviceId) {
-            this.log.error(`Failed to initialize ${this.sensorType} Sensor: Could not get Device ID.`);
+            this.log.error(`Failed to initialize ${this.sensorType} Sensor (${this.getLocationName()}): Could not get Device ID.`);
             return;
         }
-        this.log.info(`${this.sensorType} Sensor initialized with Device ID: ${this.deviceId}`);
+        this.log.info(`${this.sensorType} Sensor (${this.getLocationName()}) initialized with Device ID: ${this.deviceId}`);
 
         // First fetch to populate data
         await this.refreshStatus();
@@ -75,17 +90,17 @@ export class ClimateSensorAccessory {
         // Poll every 30 seconds (more frequent polling for better responsiveness)
         const pollIntervalMs = 30 * 1000;
         
-        this.log.info(`Starting ${this.sensorType} polling every ${pollIntervalMs/1000} seconds`);
+        this.log.info(`Starting ${this.sensorType} (${this.getLocationName()}) polling every ${pollIntervalMs/1000} seconds`);
         
         // Perform an immediate refresh before setting up the interval
         this.refreshStatus().then(() => {
-            this.log.debug(`Initial ${this.sensorType} status refresh completed`);
+            this.log.debug(`Initial ${this.sensorType} (${this.getLocationName()}) status refresh completed`);
         }).catch(error => {
-            this.log.error(`Error during initial ${this.sensorType} status refresh: ${error}`);
+            this.log.error(`Error during initial ${this.sensorType} (${this.getLocationName()}) status refresh: ${error}`);
         });
         
         this.pollingInterval = setInterval(async () => {
-            this.log.debug(`Polling for ${this.sensorType} status update...`);
+            this.log.debug(`Polling for ${this.sensorType} (${this.getLocationName()}) status update...`);
             await this.refreshStatus();
         }, pollIntervalMs);
         
@@ -94,7 +109,7 @@ export class ClimateSensorAccessory {
             if (this.pollingInterval) {
                 clearInterval(this.pollingInterval);
                 this.pollingInterval = null;
-                this.log.debug(`${this.sensorType} polling stopped due to homebridge shutdown`);
+                this.log.debug(`${this.sensorType} (${this.getLocationName()}) polling stopped due to homebridge shutdown`);
             }
         });
     }
@@ -105,31 +120,63 @@ export class ClimateSensorAccessory {
         try {
             const status = await this.aldesApi.getDeviceStatus(this.deviceId);
             if (!status) {
-                this.log.warn(`[Refresh] Failed to get device status for ${this.sensorType} sensor`);
+                this.log.warn(`[Refresh] Failed to get device status for ${this.sensorType} sensor (${this.getLocationName()})`);
                 return;
             }
 
-            // Update temperature data if available
-            if (this.sensorType === 'temperature' && status.temperature !== undefined) {
-                this.currentTemperature = status.temperature;
-                this.log.debug(`Updated temperature: ${this.currentTemperature}°C`);
-                this.service.updateCharacteristic(
-                    this.platform.Characteristic.CurrentTemperature, 
-                    this.currentTemperature
-                );
+            // Update temperature data based on sensor location
+            if (this.sensorType === 'temperature') {
+                let tempValue: number | undefined;
+                
+                switch (this.sensorLocation) {
+                    case 'main':
+                        tempValue = status.temperature;
+                        break;
+                    case 'ba1':
+                        tempValue = status.temperatureBa1;
+                        break;
+                    case 'ba2':
+                        tempValue = status.temperatureBa2;
+                        break;
+                }
+                
+                if (tempValue !== undefined) {
+                    this.currentTemperature = tempValue;
+                    this.log.debug(`Updated temperature (${this.getLocationName()}): ${this.currentTemperature}°C`);
+                    this.service.updateCharacteristic(
+                        this.platform.Characteristic.CurrentTemperature, 
+                        this.currentTemperature
+                    );
+                }
             }
 
-            // Update humidity data if available
-            if (this.sensorType === 'humidity' && status.humidity !== undefined) {
-                this.currentHumidity = status.humidity;
-                this.log.debug(`Updated humidity: ${this.currentHumidity}%`);
-                this.service.updateCharacteristic(
-                    this.platform.Characteristic.CurrentRelativeHumidity, 
-                    this.currentHumidity
-                );
+            // Update humidity data based on sensor location
+            if (this.sensorType === 'humidity') {
+                let humValue: number | undefined;
+                
+                switch (this.sensorLocation) {
+                    case 'main':
+                        humValue = status.humidity;
+                        break;
+                    case 'ba1':
+                        humValue = status.humidityBa1;
+                        break;
+                    case 'ba2':
+                        humValue = status.humidityBa2;
+                        break;
+                }
+                
+                if (humValue !== undefined) {
+                    this.currentHumidity = humValue;
+                    this.log.debug(`Updated humidity (${this.getLocationName()}): ${this.currentHumidity}%`);
+                    this.service.updateCharacteristic(
+                        this.platform.Characteristic.CurrentRelativeHumidity, 
+                        this.currentHumidity
+                    );
+                }
             }
         } catch (error) {
-            this.log.error(`Error refreshing status for ${this.sensorType} sensor: ${error}`);
+            this.log.error(`Error refreshing status for ${this.sensorType} sensor (${this.getLocationName()}): ${error}`);
         }
     }
 

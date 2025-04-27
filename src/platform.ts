@@ -193,7 +193,8 @@ export class AldesVMCPlatform implements DynamicPlatformPlugin {
         existingTemperatureSensor,
         this.log,
         this.aldesApi,
-        'temperature'
+        'temperature',
+        'main'
       );
     } else {
       this.log.info('Adding new Temperature sensor:', temperatureSensorName);
@@ -204,7 +205,8 @@ export class AldesVMCPlatform implements DynamicPlatformPlugin {
         temperatureSensorAccessory,
         this.log,
         this.aldesApi,
-        'temperature'
+        'temperature',
+        'main'
       );
       
       this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [temperatureSensorAccessory]);
@@ -220,7 +222,8 @@ export class AldesVMCPlatform implements DynamicPlatformPlugin {
         existingHumiditySensor,
         this.log,
         this.aldesApi,
-        'humidity'
+        'humidity',
+        'main'
       );
     } else {
       this.log.info('Adding new Humidity sensor:', humiditySensorName);
@@ -231,11 +234,136 @@ export class AldesVMCPlatform implements DynamicPlatformPlugin {
         humiditySensorAccessory,
         this.log,
         this.aldesApi,
-        'humidity'
+        'humidity',
+        'main'
       );
       
       this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [humiditySensorAccessory]);
       this.accessories.push(humiditySensorAccessory);
+    }
+    
+    // Create Temperature Ba1 Sensor Accessory
+    const tempBa1SensorName = `${vmcName} Temperature Ba1`;
+    const tempBa1Uuid = this.api.hap.uuid.generate(PLUGIN_NAME + tempBa1SensorName);
+    const existingTempBa1Sensor = this.accessories.find(accessory => accessory.UUID === tempBa1Uuid);
+    if (existingTempBa1Sensor) {
+      this.log.info('Restoring existing Temperature Ba1 sensor from cache:', existingTempBa1Sensor.displayName);
+      new ClimateSensorAccessory(
+        this,
+        existingTempBa1Sensor,
+        this.log,
+        this.aldesApi,
+        'temperature',
+        'ba1'
+      );
+    } else {
+      this.log.info('Adding new Temperature Ba1 sensor:', tempBa1SensorName);
+      const tempBa1SensorAccessory = new this.api.platformAccessory(tempBa1SensorName, tempBa1Uuid);
+      
+      new ClimateSensorAccessory(
+        this,
+        tempBa1SensorAccessory,
+        this.log,
+        this.aldesApi,
+        'temperature',
+        'ba1'
+      );
+      
+      this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [tempBa1SensorAccessory]);
+      this.accessories.push(tempBa1SensorAccessory);
+    }
+    
+    // Create Humidity Ba1 Sensor Accessory
+    const humBa1SensorName = `${vmcName} Humidity Ba1`;
+    const humBa1Uuid = this.api.hap.uuid.generate(PLUGIN_NAME + humBa1SensorName);
+    const existingHumBa1Sensor = this.accessories.find(accessory => accessory.UUID === humBa1Uuid);
+    if (existingHumBa1Sensor) {
+      this.log.info('Restoring existing Humidity Ba1 sensor from cache:', existingHumBa1Sensor.displayName);
+      new ClimateSensorAccessory(
+        this,
+        existingHumBa1Sensor,
+        this.log,
+        this.aldesApi,
+        'humidity',
+        'ba1'
+      );
+    } else {
+      this.log.info('Adding new Humidity Ba1 sensor:', humBa1SensorName);
+      const humBa1SensorAccessory = new this.api.platformAccessory(humBa1SensorName, humBa1Uuid);
+      
+      new ClimateSensorAccessory(
+        this,
+        humBa1SensorAccessory,
+        this.log,
+        this.aldesApi,
+        'humidity',
+        'ba1'
+      );
+      
+      this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [humBa1SensorAccessory]);
+      this.accessories.push(humBa1SensorAccessory);
+    }
+    
+    // Create Temperature Ba2 Sensor Accessory
+    const tempBa2SensorName = `${vmcName} Temperature Ba2`;
+    const tempBa2Uuid = this.api.hap.uuid.generate(PLUGIN_NAME + tempBa2SensorName);
+    const existingTempBa2Sensor = this.accessories.find(accessory => accessory.UUID === tempBa2Uuid);
+    if (existingTempBa2Sensor) {
+      this.log.info('Restoring existing Temperature Ba2 sensor from cache:', existingTempBa2Sensor.displayName);
+      new ClimateSensorAccessory(
+        this,
+        existingTempBa2Sensor,
+        this.log,
+        this.aldesApi,
+        'temperature',
+        'ba2'
+      );
+    } else {
+      this.log.info('Adding new Temperature Ba2 sensor:', tempBa2SensorName);
+      const tempBa2SensorAccessory = new this.api.platformAccessory(tempBa2SensorName, tempBa2Uuid);
+      
+      new ClimateSensorAccessory(
+        this,
+        tempBa2SensorAccessory,
+        this.log,
+        this.aldesApi,
+        'temperature',
+        'ba2'
+      );
+      
+      this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [tempBa2SensorAccessory]);
+      this.accessories.push(tempBa2SensorAccessory);
+    }
+    
+    // Create Humidity Ba2 Sensor Accessory
+    const humBa2SensorName = `${vmcName} Humidity Ba2`;
+    const humBa2Uuid = this.api.hap.uuid.generate(PLUGIN_NAME + humBa2SensorName);
+    const existingHumBa2Sensor = this.accessories.find(accessory => accessory.UUID === humBa2Uuid);
+    if (existingHumBa2Sensor) {
+      this.log.info('Restoring existing Humidity Ba2 sensor from cache:', existingHumBa2Sensor.displayName);
+      new ClimateSensorAccessory(
+        this,
+        existingHumBa2Sensor,
+        this.log,
+        this.aldesApi,
+        'humidity',
+        'ba2'
+      );
+    } else {
+      this.log.info('Adding new Humidity Ba2 sensor:', humBa2SensorName);
+      const humBa2SensorAccessory = new this.api.platformAccessory(humBa2SensorName, humBa2Uuid);
+      
+      new ClimateSensorAccessory(
+        this,
+        humBa2SensorAccessory,
+        this.log,
+        this.aldesApi,
+        'humidity',
+        'ba2'
+      );
+      
+      this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [humBa2SensorAccessory]);
+      this.accessories.push(humBa2SensorAccessory);
     }
   }
 }
