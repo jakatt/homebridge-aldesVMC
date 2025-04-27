@@ -22,6 +22,12 @@
         "type": "string",
         "description": "Optional: The name for your Aldes VMC accessory in the Home app.",
         "default": "Aldes VMC"
+      },
+      "enableSensors": {
+        "title": "Enable Sensors",
+        "type": "boolean",
+        "description": "Enable or disable Air Quality and CO2 sensors. Set to false if your model doesn't support these sensors.",
+        "default": true
       }
     }
   }

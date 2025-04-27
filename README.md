@@ -15,6 +15,12 @@ This is a Homebridge plugin for controlling Aldes Ventilation Units (VMC) that a
     *   100%: Sets mode 'X' (Guests)
 *   Reports the current VMC mode as the fan speed (0%, 50%, or 100%).
 *   Handles Aldes API token acquisition and refresh automatically.
+*   Exposes environmental sensors for models that support these metrics:
+    *   Air Quality
+    *   CO₂ level
+    *   Temperature
+    *   Humidity
+*   Updates sensor readings automatically every 60 seconds.
 
 ## Installation
 
@@ -35,7 +41,8 @@ Add the following platform block to your `config.json` within the `platforms` ar
   "name": "AldesVMC",
   "username": "YOUR_ALDES_USERNAME",
   "password": "YOUR_ALDES_PASSWORD",
-  "vmcName": "Aldes VMC"
+  "vmcName": "Aldes VMC",
+  "enableSensors": true
 }
 ```
 
@@ -46,11 +53,35 @@ Add the following platform block to your `config.json` within the `platforms` ar
 *   `username` (required): Your username (email address) for the AldesConnect™ account.
 *   `password` (required): Your password for the AldesConnect™ account.
 *   `vmcName` (optional): The name for the VMC accessory as it will appear in the Home app (Default: `"Aldes VMC"`).
+*   `enableSensors` (optional): Set to `false` to disable all sensors if your model doesn't support them (Default: `true`).
+
+## Sensors
+
+This plugin adds four additional HomeKit accessories:
+
+1. **Air Quality Sensor** - Shows the air quality level from your VMC unit:
+   * Reports quality levels: Excellent, Good, Fair, Inferior, Poor
+   * Includes PM2.5 density estimation
+
+2. **CO₂ Sensor** - Shows the carbon dioxide level from your VMC unit:
+   * Reports CO₂ concentration in ppm
+   * Triggers abnormal status when CO₂ levels exceed 1000 ppm
+
+3. **Temperature Sensor** - Shows the current temperature:
+   * Reports temperature in Celsius
+   * Useful for automation based on indoor temperature
+
+4. **Humidity Sensor** - Shows the current relative humidity:
+   * Reports humidity percentage (0-100%)
+   * Helps monitor indoor air moisture levels
+
+All sensors update their values every 60 seconds by polling the Aldes API.
 
 ## Notes
 
-*   This plugin does not currently support polling. The status in HomeKit will update when you control the device via HomeKit or when Homebridge restarts. If you control the VMC via the Aldes app or other means, HomeKit may show an outdated status.
+*   The VMC fan status in HomeKit will update when you control the device via HomeKit or when Homebridge restarts. External changes (from the Aldes app) will be detected every 30 seconds.
 *   The mapping between HomeKit fan speeds (0%, 50%, 100%) and Aldes modes ('V', 'Y', 'X') is defined in the plugin code.
+*   If your VMC model doesn't provide sensor data, you can disable all sensors in the configuration.
 
 ## License
 

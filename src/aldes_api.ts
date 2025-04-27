@@ -27,6 +27,7 @@ interface AldesIndicator {
 
 interface AldesDeviceDetails {
     indicators: AldesIndicator[];
+    indicator?: Record<string, any>; // Add optional indicator object property
     // Add other fields if needed
 }
 
@@ -41,6 +42,10 @@ export type VmcMode = 'V' | 'Y' | 'X';
 export interface AldesDeviceStatus {
     isSelfControlled: boolean;
     mode: VmcMode | null;
+    airQuality?: number;   // Air quality level (0-100%)
+    co2Level?: number;     // CO2 level in ppm
+    temperature?: number;  // Temperature in Celsius
+    humidity?: number;     // Relative humidity (0-100%)
 }
 
 // --- AldesAPI Class ---
@@ -208,17 +213,98 @@ export class AldesAPI {
                 headers: { 'Authorization': `Bearer ${token}` },
             });
 
-            // Look for both the MODE and SELF_CONTROLLED indicators
-            const modeIndicator = response.data?.indicators?.find((ind: AldesIndicator) => ind.type === 'MODE');
-            const selfControlledIndicator = response.data?.indicators?.find((ind: AldesIndicator) => ind.type === 'SELF_CONTROLLED');
-            
+            // Log the complete raw response to understand the full structure
+            this.log.info('Complete API response:');
+            this.log.info(JSON.stringify(response.data, null, 2));
+
+            // Debug log indicators section
+            this.log.debug('Raw API response indicators:');
+            if (response.data?.indicators) {
+                response.data.indicators.forEach(ind => {
+                    this.log.debug(`Indicator: ${ind.type}, Value: ${JSON.stringify(ind.value)}`);
+                });
+            }
+
+            // Create the status object with default values from the indicators array
             const status: AldesDeviceStatus = {
-                isSelfControlled: selfControlledIndicator?.value === true,
-                mode: modeIndicator && typeof modeIndicator.value === 'string' && ['V', 'Y', 'X'].includes(modeIndicator.value) ?
-                      modeIndicator.value as VmcMode : null
+                isSelfControlled: false,
+                mode: null
             };
 
-            this.log.debug(`Device status: Mode=${status.mode}, SelfControlled=${status.isSelfControlled}`);
+            // First get basic indicators from the indicators array
+            if (response.data?.indicators) {
+                for (const indicator of response.data.indicators) {
+                    if (indicator.type === 'MODE' && typeof indicator.value === 'string' && 
+                        ['V', 'Y', 'X'].includes(indicator.value)) {
+                        status.mode = indicator.value as VmcMode;
+                        this.log.debug(`Found mode from indicators array: ${status.mode}`);
+                    } else if (indicator.type === 'SELF_CONTROLLED') {
+                        status.isSelfControlled = indicator.value === true;
+                        this.log.debug(`Found self controlled: ${status.isSelfControlled}`);
+                    } else if (indicator.type === 'QAI_INDEX' && typeof indicator.value === 'number') {
+                        status.airQuality = indicator.value;
+                        this.log.debug(`Found air quality from indicators array: ${status.airQuality}`);
+                    }
+                }
+            }
+
+            // Now check for the indicator object which contains the detailed sensor data
+            if (response.data?.indicator && typeof response.data.indicator === 'object') {
+                const indObj = response.data.indicator;
+                this.log.info('Found indicators object with nested structure');
+
+                // Get mode from the indicator object if not already set
+                if (!status.mode && indObj.ConVe && typeof indObj.ConVe === 'string' && 
+                    ['V', 'Y', 'X'].includes(indObj.ConVe)) {
+                    status.mode = indObj.ConVe as VmcMode;
+                    this.log.debug(`Found mode from indicator object: ${status.mode}`);
+                }
+                
+                // Also check EASYHOME_CURRENT_MODE for mode
+                if (!status.mode && indObj.EASYHOME_CURRENT_MODE && 
+                    typeof indObj.EASYHOME_CURRENT_MODE === 'string' &&
+                    ['V', 'Y', 'X'].includes(indObj.EASYHOME_CURRENT_MODE)) {
+                    status.mode = indObj.EASYHOME_CURRENT_MODE as VmcMode;
+                    this.log.debug(`Found mode from EASYHOME_CURRENT_MODE: ${status.mode}`);
+                }
+
+                // Get CO2 level
+                if (indObj.CO2 && typeof indObj.CO2 === 'number') {
+                    status.co2Level = indObj.CO2;
+                    this.log.info(`CO2 level found from nested object: ${status.co2Level} ppm`);
+                }
+                
+                // Get temperature
+                if (indObj.TmpCu && typeof indObj.TmpCu === 'number') {
+                    status.temperature = indObj.TmpCu / 10;
+                    this.log.info(`Temperature found from nested object: ${status.temperature}°C`);
+                }
+                
+                // Get humidity
+                if (indObj.HrCu && typeof indObj.HrCu === 'number') {
+                    status.humidity = indObj.HrCu;
+                    this.log.info(`Humidity found from nested object: ${status.humidity}%`);
+                }
+                
+                // Get air quality if not already set
+                if (!status.airQuality && indObj.Qai && typeof indObj.Qai === 'object' && indObj.Qai !== null) {
+                    const qai = indObj.Qai;
+                    if (qai.actualValue && typeof qai.actualValue === 'number') {
+                        status.airQuality = qai.actualValue;
+                        this.log.info(`Air quality found from nested Qai object: ${status.airQuality}`);
+                    }
+                }
+            }
+
+            // Set a default mode if we didn't find one
+            if (!status.mode) {
+                status.mode = 'V'; // Default to minimum ventilation
+                this.log.warn(`Mode not found in API response, defaulting to: ${status.mode}`);
+            }
+
+            this.log.info(`Final device status: Mode=${status.mode}, SelfControlled=${status.isSelfControlled}, ` +
+                         `AirQuality=${status.airQuality}, CO2=${status.co2Level}, ` +
+                         `Temperature=${status.temperature}, Humidity=${status.humidity}`);
             return status;
         } catch (error: unknown) {
             this.log.error(`Failed to get device status for ${deviceId}: ${this.formatError(error)}`);
