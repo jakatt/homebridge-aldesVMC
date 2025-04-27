@@ -4,7 +4,7 @@ import { AldesAPI } from './aldes_api.js';
 
 // Define the sensor types and locations
 type SensorType = 'temperature' | 'humidity';
-type SensorLocation = 'main' | 'ba1' | 'ba2';  // main = Kitchen, ba1 = Bathroom1, ba2 = Bathroom2
+type SensorLocation = 'main' | 'ba1' | 'ba2' | 'ba3' | 'ba4';  // Support up to 4 additional sensors
 
 export class ClimateSensorAccessory {
     private service: Service;
@@ -60,9 +60,11 @@ export class ClimateSensorAccessory {
     // Helper method to get human-readable location names
     private getLocationName(): string {
         switch (this.sensorLocation) {
-            case 'main': return 'Kitchen';
-            case 'ba1': return 'Bathroom1';
-            case 'ba2': return 'Bathroom2';
+            case 'main': return 'Main ⌀125';
+            case 'ba1': return 'Room 1 ⌀80';
+            case 'ba2': return 'Room 2 ⌀80';
+            case 'ba3': return 'Room 3 ⌀80';
+            case 'ba4': return 'Room 4 ⌀80';
             default: return this.sensorLocation;
         }
     }
@@ -138,6 +140,12 @@ export class ClimateSensorAccessory {
                     case 'ba2':
                         tempValue = status.temperatureBa2;
                         break;
+                    case 'ba3':
+                        tempValue = status.temperatureBa3;
+                        break;
+                    case 'ba4':
+                        tempValue = status.temperatureBa4;
+                        break;
                 }
                 
                 if (tempValue !== undefined) {
@@ -163,6 +171,12 @@ export class ClimateSensorAccessory {
                         break;
                     case 'ba2':
                         humValue = status.humidityBa2;
+                        break;
+                    case 'ba3':
+                        humValue = status.humidityBa3;
+                        break;
+                    case 'ba4':
+                        humValue = status.humidityBa4;
                         break;
                 }
                 

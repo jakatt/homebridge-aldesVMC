@@ -26,8 +26,87 @@
       "enableSensors": {
         "title": "Enable Sensors",
         "type": "boolean",
-        "description": "Enable or disable Air Quality and CO2 sensors. Set to false if your model doesn't support these sensors.",
+        "description": "Enable or disable all sensors including Air Quality and CO2 sensors. Set to false if you don't need any sensors.",
         "default": true
+      },
+      "sensorConfig": {
+        "title": "Sensor Configuration",
+        "type": "object",
+        "description": "Configuration for individual temperature and humidity sensors",
+        "properties": {
+          "temperature": {
+            "title": "Temperature Sensors",
+            "type": "object",
+            "properties": {
+              "main": {
+                "title": "Main Temperature Sensor ⌀125",
+                "type": "boolean",
+                "description": "Enable main temperature sensor",
+                "default": true
+              },
+              "ba1": {
+                "title": "Room 1 Temperature Sensor ⌀80",
+                "type": "boolean",
+                "description": "Enable temperature sensor for Room 1",
+                "default": true
+              },
+              "ba2": {
+                "title": "Room 2 Temperature Sensor ⌀80",
+                "type": "boolean",
+                "description": "Enable temperature sensor for Room 2",
+                "default": true
+              },
+              "ba3": {
+                "title": "Room 3 Temperature Sensor ⌀80",
+                "type": "boolean",
+                "description": "Enable temperature sensor for Room 3",
+                "default": false
+              },
+              "ba4": {
+                "title": "Room 4 Temperature Sensor ⌀80",
+                "type": "boolean",
+                "description": "Enable temperature sensor for Room 4",
+                "default": false
+              }
+            }
+          },
+          "humidity": {
+            "title": "Humidity Sensors",
+            "type": "object",
+            "properties": {
+              "main": {
+                "title": "Main Humidity Sensor ⌀125",
+                "type": "boolean",
+                "description": "Enable main humidity sensor",
+                "default": true
+              },
+              "ba1": {
+                "title": "Room 1 Humidity Sensor ⌀80",
+                "type": "boolean",
+                "description": "Enable humidity sensor for Room 1",
+                "default": true
+              },
+              "ba2": {
+                "title": "Room 2 Humidity Sensor ⌀80",
+                "type": "boolean",
+                "description": "Enable humidity sensor for Room 2",
+                "default": true
+              },
+              "ba3": {
+                "title": "Room 3 Humidity Sensor ⌀80",
+                "type": "boolean",
+                "description": "Enable humidity sensor for Room 3",
+                "default": false
+              },
+              "ba4": {
+                "title": "Room 4 Humidity Sensor ⌀80",
+                "type": "boolean",
+                "description": "Enable humidity sensor for Room 4",
+                "default": false
+              }
+            }
+          }
+        }
       }
     }
   }

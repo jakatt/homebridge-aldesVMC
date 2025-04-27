@@ -49,13 +49,21 @@ export interface AldesDeviceStatus {
     temperature?: number;    // Temperature in Celsius
     humidity?: number;       // Relative humidity (0-100%)
     
-    // Additional sensor 1 (TmpBa1/HrBa1)
+    // Additional sensors (1-5)
     temperatureBa1?: number; // Temperature in Celsius for Ba1
     humidityBa1?: number;    // Relative humidity (0-100%) for Ba1
     
-    // Additional sensor 2 (TmpBa2/HrBa2)
     temperatureBa2?: number; // Temperature in Celsius for Ba2
     humidityBa2?: number;    // Relative humidity (0-100%) for Ba2
+    
+    temperatureBa3?: number; // Temperature in Celsius for Ba3
+    humidityBa3?: number;    // Relative humidity (0-100%) for Ba3
+    
+    temperatureBa4?: number; // Temperature in Celsius for Ba4
+    humidityBa4?: number;    // Relative humidity (0-100%) for Ba4
+    
+    temperatureBa5?: number; // Temperature in Celsius for Ba5
+    humidityBa5?: number;    // Relative humidity (0-100%) for Ba5
 }
 
 // --- AldesAPI Class ---
@@ -318,6 +326,42 @@ export class AldesAPI {
                 if (indObj.HrBa2 && typeof indObj.HrBa2 === 'number') {
                     status.humidityBa2 = indObj.HrBa2;
                     this.log.info(`Humidity Ba2 found from nested object: ${status.humidityBa2}%`);
+                }
+                
+                // Get additional temperature 3 (TmpBa3)
+                if (indObj.TmpBa3 && typeof indObj.TmpBa3 === 'number') {
+                    status.temperatureBa3 = indObj.TmpBa3 / 10;
+                    this.log.info(`Temperature Ba3 found from nested object: ${status.temperatureBa3}°C`);
+                }
+                
+                // Get additional humidity 3 (HrBa3)
+                if (indObj.HrBa3 && typeof indObj.HrBa3 === 'number') {
+                    status.humidityBa3 = indObj.HrBa3;
+                    this.log.info(`Humidity Ba3 found from nested object: ${status.humidityBa3}%`);
+                }
+                
+                // Get additional temperature 4 (TmpBa4)
+                if (indObj.TmpBa4 && typeof indObj.TmpBa4 === 'number') {
+                    status.temperatureBa4 = indObj.TmpBa4 / 10;
+                    this.log.info(`Temperature Ba4 found from nested object: ${status.temperatureBa4}°C`);
+                }
+                
+                // Get additional humidity 4 (HrBa4)
+                if (indObj.HrBa4 && typeof indObj.HrBa4 === 'number') {
+                    status.humidityBa4 = indObj.HrBa4;
+                    this.log.info(`Humidity Ba4 found from nested object: ${status.humidityBa4}%`);
+                }
+                
+                // Get additional temperature 5 (TmpBa5)
+                if (indObj.TmpBa5 && typeof indObj.TmpBa5 === 'number') {
+                    status.temperatureBa5 = indObj.TmpBa5 / 10;
+                    this.log.info(`Temperature Ba5 found from nested object: ${status.temperatureBa5}°C`);
+                }
+                
+                // Get additional humidity 5 (HrBa5)
+                if (indObj.HrBa5 && typeof indObj.HrBa5 === 'number') {
+                    status.humidityBa5 = indObj.HrBa5;
+                    this.log.info(`Humidity Ba5 found from nested object: ${status.humidityBa5}%`);
                 }
                 
                 // Get air quality if not already set

@@ -93,11 +93,10 @@ export class VmcAccessory {
     async initializeDevice() {
         this.deviceId = await this.aldesApi.getDeviceId();
         if (!this.deviceId) {
-            this.log.error(`Failed to initialize VMC Accessory ${this.accessory.displayName}: Could not get Device ID.`);
-            // Consider disabling the accessory or preventing handlers from running
+            this.log.error(`Failed to initialize VMC Accessory: Could not get Device ID.`);
             return;
         }
-        this.log.info(`VMC Accessory ${this.accessory.displayName} initialized with Device ID: ${this.deviceId}`);
+        this.log.info(`VMC Accessory initialized with Device ID: ${this.deviceId}`);
         // Perform an initial status fetch to populate cache
         await this.refreshStatus();
         
@@ -111,10 +110,10 @@ export class VmcAccessory {
             clearInterval(this.pollingInterval);
         }
         
-        // Poll every 30 seconds (can be adjusted based on your needs)
-        const pollIntervalMs = 30 * 1000;
+        // Poll every 5 minutes
+        const pollIntervalMs = 5 * 60 * 1000; // 5 minutes
         
-        this.log.info(`Starting polling for external changes every ${pollIntervalMs/1000} seconds...`);
+        this.log.info(`Starting polling for external changes every ${pollIntervalMs/60000} minutes...`);
         
         this.pollingInterval = setInterval(async () => {
             await this.checkForExternalChanges();
@@ -173,7 +172,7 @@ export class VmcAccessory {
     async refreshStatus() {
         if (!this.deviceId) return;
 
-        this.log.debug(`Refreshing status for ${this.accessory.displayName}...`);
+        this.log.debug(`Refreshing status...`);
         try {
             const status = await this.aldesApi.getDeviceStatus(this.deviceId);
             if (!status) {
@@ -201,33 +200,33 @@ export class VmcAccessory {
             this.service.updateCharacteristic(this.platform.Characteristic.RotationSpeed, currentSpeed);
 
         } catch (error) {
-            this.log.error(`Error refreshing status for ${this.accessory.displayName}: ${error}`);
+            this.log.error(`Error refreshing status: ${error}`);
         }
     }
 
     async handleActiveGet(): Promise<CharacteristicValue> {
         if (!this.deviceId) {
-             this.log.warn(`Cannot get active state for ${this.accessory.displayName}: Device ID not available.`);
+             this.log.warn(`Cannot get active state: Device ID not available.`);
              throw new this.platform.api.hap.HapStatusError(this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
         }
         // V mode is now considered OFF (inactive)
         const isActiveState = this.currentMode !== 'V';
         const state = isActiveState ? this.platform.Characteristic.Active.ACTIVE : this.platform.Characteristic.Active.INACTIVE;
-        this.log.debug(`GET Active for ${this.accessory.displayName}: Returning ${state} (Mode: ${this.currentMode})`);
+        this.log.debug(`GET Active: Returning ${state} (Mode: ${this.currentMode})`);
         return state;
     }
 
     async handleActiveSet(value: CharacteristicValue) {
         if (!this.deviceId) {
-            this.log.warn(`Cannot set active state for ${this.accessory.displayName}: Device ID not available.`);
+            this.log.warn(`Cannot set active state: Device ID not available.`);
             throw new this.platform.api.hap.HapStatusError(this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
         }
         
         // Check if VMC is in SELF_CONTROLLED mode
         if (this.isSelfControlled) {
-            this.log.warn(`Cannot change ${this.accessory.displayName} mode: Device is in SELF_CONTROLLED (force) mode.`);
+            this.log.warn(`Cannot change mode: Device is in SELF_CONTROLLED (force) mode.`);
             
-            // Reset characteristic to current value without throwing an error
+            // Reset characteristic to current value and inform user about restriction
             const currentActiveState = this.currentMode !== 'V' ? 
                 this.platform.Characteristic.Active.ACTIVE : 
                 this.platform.Characteristic.Active.INACTIVE;
@@ -236,18 +235,20 @@ export class VmcAccessory {
                 this.service.updateCharacteristic(this.platform.Characteristic.Active, currentActiveState);
             }, 100);
             
-            // Return without throwing an error - this keeps the accessory responsive in HomeKit
-            return;
+            // Only pass the status code to match the expected signature
+            throw new this.platform.api.hap.HapStatusError(
+                this.platform.api.hap.HAPStatus.NOT_ALLOWED_IN_CURRENT_STATE
+            );
         }
         
         const targetActiveState = value as number; // ACTIVE or INACTIVE
         const targetIsActive = targetActiveState === this.platform.Characteristic.Active.ACTIVE;
-        this.log.debug(`SET Active for ${this.accessory.displayName} to: ${targetActiveState} (${targetIsActive})`);
+        this.log.debug(`SET Active to: ${targetActiveState} (${targetIsActive ? 'ON' : 'OFF'})`);
 
         const currentIsActive = this.currentMode !== 'V';
 
         if (targetIsActive === currentIsActive) {
-            this.log.debug(`Active state is already ${targetIsActive}. No change needed.`);
+            this.log.debug(`Active state is already ${targetIsActive ? 'ON' : 'OFF'}. No change needed.`);
             // Ensure HomeKit UI matches internal state if needed
             this.service.updateCharacteristic(this.platform.Characteristic.Active, targetActiveState);
             return;
@@ -256,7 +257,7 @@ export class VmcAccessory {
         // Determine target mode: 'V' if turning OFF, DEFAULT_ACTIVE_MODE ('Y') if turning ON
         const targetMode: VmcMode = targetIsActive ? DEFAULT_ACTIVE_MODE : 'V';
 
-        this.log.info(`Setting ${this.accessory.displayName} Active=${targetIsActive} by setting mode to ${targetMode}`);
+        this.log.info(`Setting Active=${targetIsActive ? 'ON' : 'OFF'} by setting mode to ${targetMode}`);
 
         try {
             const success = await this.aldesApi.setVmcMode(this.deviceId, targetMode);
@@ -274,10 +275,10 @@ export class VmcAccessory {
             // Active state should match the requested state
             this.service.updateCharacteristic(this.platform.Characteristic.Active, targetActiveState);
 
-            this.log.info(`Successfully set mode to ${targetMode} for ${this.accessory.displayName}`);
+            this.log.info(`Successfully set mode to ${targetMode}`);
 
         } catch (error) {
-            this.log.error(`Error setting mode to ${targetMode} for ${this.accessory.displayName}: ${error}`);
+            this.log.error(`Error setting mode to ${targetMode}: ${error}`);
             // Trigger a refresh to get the actual current state after failure
             setTimeout(() => this.refreshStatus(), 1000); // Refresh after 1s
             throw new this.platform.api.hap.HapStatusError(this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
@@ -286,36 +287,39 @@ export class VmcAccessory {
 
     async handleRotationSpeedGet(): Promise<CharacteristicValue> {
          if (!this.deviceId) {
-             this.log.warn(`Cannot get speed for ${this.accessory.displayName}: Device ID not available.`);
+             this.log.warn(`Cannot get speed: Device ID not available.`);
              throw new this.platform.api.hap.HapStatusError(this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
         }
         const speed = AldesModeToSpeed[this.currentMode];
-        this.log.debug(`GET RotationSpeed for ${this.accessory.displayName}: Returning ${speed} (Mode: ${this.currentMode})`);
+        this.log.debug(`GET RotationSpeed: Returning ${speed}% (Mode: ${this.currentMode})`);
         return speed;
     }
 
     async handleRotationSpeedSet(value: CharacteristicValue) {
          if (!this.deviceId) {
-            this.log.warn(`Cannot set speed for ${this.accessory.displayName}: Device ID not available.`);
+            this.log.warn(`Cannot set speed: Device ID not available.`);
             throw new this.platform.api.hap.HapStatusError(this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
         }
         
         // Check if VMC is in SELF_CONTROLLED mode
         if (this.isSelfControlled) {
-            this.log.warn(`Cannot change ${this.accessory.displayName} speed: Device is in SELF_CONTROLLED (force) mode.`);
+            this.log.warn(`Cannot change speed: Device is in SELF_CONTROLLED (force) mode.`);
             
-            // Reset characteristic to current value without throwing an error
+            // Reset characteristic to current value and inform user about restriction
             const currentSpeed = AldesModeToSpeed[this.currentMode];
+            
             setTimeout(() => {
                 this.service.updateCharacteristic(this.platform.Characteristic.RotationSpeed, currentSpeed);
             }, 100);
             
-            // Return without throwing an error - this keeps the accessory responsive in HomeKit
-            return;
+            // Only pass the status code to match the expected signature
+            throw new this.platform.api.hap.HapStatusError(
+                this.platform.api.hap.HAPStatus.NOT_ALLOWED_IN_CURRENT_STATE
+            );
         }
         
         const speed = value as number;
-        this.log.debug(`SET RotationSpeed for ${this.accessory.displayName} to: ${speed}`);
+        this.log.debug(`SET RotationSpeed to: ${speed}%`);
 
         // Determine target Aldes mode based on speed
         const targetMode = SpeedToAldesMode(speed);
@@ -333,7 +337,7 @@ export class VmcAccessory {
         }
 
         // Set the target mode V, Y, or X
-        this.log.info(`Setting ${this.accessory.displayName} speed to ${speed} by setting mode to ${targetMode}`);
+        this.log.info(`Setting speed to ${speed}% by setting mode to ${targetMode}`);
         try {
             const success = await this.aldesApi.setVmcMode(this.deviceId, targetMode);
             if (!success) {
@@ -348,10 +352,10 @@ export class VmcAccessory {
             this.service.updateCharacteristic(this.platform.Characteristic.Active, targetActiveState);
             this.service.updateCharacteristic(this.platform.Characteristic.RotationSpeed, targetSpeed);
 
-            this.log.info(`Successfully set mode to ${targetMode} for ${this.accessory.displayName}`);
+            this.log.info(`Successfully set mode to ${targetMode}`);
 
         } catch (error) {
-            this.log.error(`Error setting mode to ${targetMode} for ${this.accessory.displayName}: ${error}`);
+            this.log.error(`Error setting mode to ${targetMode}: ${error}`);
             // Trigger a refresh to get the actual current state after failure
             setTimeout(() => this.refreshStatus(), 1000); // Refresh after 1s
             throw new this.platform.api.hap.HapStatusError(this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
