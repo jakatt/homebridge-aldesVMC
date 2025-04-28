@@ -29,6 +29,22 @@
         "description": "Enable or disable all sensors including Air Quality and CO2 sensors. Set to false if you don't need any sensors.",
         "default": true
       },
+      "sensorPollingInterval": {
+        "title": "Sensor Polling Interval",
+        "type": "integer",
+        "description": "Interval in seconds between sensor data updates (all sensors). Default is 60 seconds.",
+        "default": 60,
+        "minimum": 10,
+        "maximum": 3600
+      },
+      "externalChangesPollingInterval": {
+        "title": "External Changes Polling Interval",
+        "type": "integer",
+        "description": "Interval in seconds to check for external changes made from the Aldes app. Default is 60 seconds.",
+        "default": 60,
+        "minimum": 30,
+        "maximum": 3600
+      },
       "sensorConfig": {
         "title": "Sensor Configuration",
         "type": "object",

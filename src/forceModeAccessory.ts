@@ -2,6 +2,9 @@ import { Service, PlatformAccessory, Logger } from 'homebridge';
 import { AldesVMCPlatform } from './platform.js';
 import { AldesAPI } from './aldes_api.js';
 
+// Default polling interval in seconds if not specified in config
+const DEFAULT_SENSOR_POLLING_INTERVAL = 60;
+
 /**
  * Force Mode Indicator Accessory
  * This accessory appears as a switch in HomeKit to indicate when the VMC is in Force mode.
@@ -80,10 +83,11 @@ export class ForceModeAccessory {
             clearInterval(this.pollingInterval);
         }
         
-        // Poll every 30 seconds
-        const pollIntervalMs = 30 * 1000;
+        // Get polling interval from config, or use default
+        const pollingIntervalSeconds = this.platform.config.sensorPollingInterval || DEFAULT_SENSOR_POLLING_INTERVAL;
+        const pollIntervalMs = pollingIntervalSeconds * 1000;
         
-        this.log.info(`Starting Force Mode polling every ${pollIntervalMs/1000} seconds...`);
+        this.log.info(`Starting Force Mode polling every ${pollingIntervalSeconds} seconds...`);
         
         this.pollingInterval = setInterval(async () => {
             await this.refreshStatus();

@@ -22,6 +22,8 @@ const SpeedToAldesMode = (speed: number): VmcMode => {
     return 'V';
 };
 const DEFAULT_ACTIVE_MODE: VmcMode = 'Y'; // Default mode when turning fan ON remains Boost ('Y')
+// Default polling interval in seconds if not specified
+const DEFAULT_EXTERNAL_CHANGES_POLLING_INTERVAL = 60;
 
 export class VmcAccessory {
     private service: Service;
@@ -110,10 +112,11 @@ export class VmcAccessory {
             clearInterval(this.pollingInterval);
         }
         
-        // Poll every 5 minutes
-        const pollIntervalMs = 5 * 60 * 1000; // 5 minutes
+        // Get polling interval from config, or use default (60 seconds)
+        const pollingIntervalSeconds = this.platform.config.externalChangesPollingInterval || DEFAULT_EXTERNAL_CHANGES_POLLING_INTERVAL;
+        const pollIntervalMs = pollingIntervalSeconds * 1000;
         
-        this.log.info(`Starting polling for external changes every ${pollIntervalMs/60000} minutes...`);
+        this.log.info(`Starting polling for external changes every ${pollingIntervalSeconds} seconds...`);
         
         this.pollingInterval = setInterval(async () => {
             await this.checkForExternalChanges();

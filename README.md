@@ -18,9 +18,9 @@ This is a Homebridge plugin for controlling Aldes Ventilation Units (VMC) that a
 *   Exposes environmental sensors for models that support these metrics:
     *   Air Quality
     *   CO₂ level
-    *   Multiple temperature sensors (up to 5: Main + 4 rooms)
-    *   Multiple humidity sensors (up to 5: Main + 4 rooms)
-*   Updates sensor readings automatically every 30 seconds.
+    *   Multiple temperature sensors (up to 5)
+    *   Multiple humidity sensors (up to 5)
+*   Configurable polling intervals for sensors and external changes detection.
 
 ## Installation
 
@@ -43,6 +43,8 @@ Add the following platform block to your `config.json` within the `platforms` ar
   "password": "YOUR_ALDES_PASSWORD",
   "vmcName": "Aldes VMC",
   "enableSensors": true,
+  "sensorPollingInterval": 60,
+  "externalChangesPollingInterval": 60,
   "sensorConfig": {
     "temperature": {
       "main": true,
@@ -70,6 +72,8 @@ Add the following platform block to your `config.json` within the `platforms` ar
 *   `password` (required): Your password for the AldesConnect™ account.
 *   `vmcName` (optional): The name for the VMC accessory as it will appear in the Home app (Default: `"Aldes VMC"`).
 *   `enableSensors` (optional): Set to `false` to disable all sensors if your model doesn't support them (Default: `true`).
+*   `sensorPollingInterval` (optional): Interval in seconds between sensor data updates (Default: `60`).
+*   `externalChangesPollingInterval` (optional): Interval in seconds to check for VMC mode changes made from the Aldes app (Default: `60`).
 *   `sensorConfig` (optional): Configure which temperature and humidity sensors to enable (see below).
 
 ### Sensor Configuration
@@ -107,18 +111,19 @@ This plugin adds several HomeKit accessories:
    * All report humidity percentage (0-100%)
 
 5. **Force Mode Indicator** - Indicates when the VMC is in forced mode (self-controlled):
-   * Shows as a contact sensor in HomeKit
-   * "Closed" when normal operation
-   * "Open" when in forced mode (when control is not possible)
+   * Shows as a switch in HomeKit
+   * Switch OFF when in normal operation
+   * Switch ON when in forced mode (when control is not possible)
 
-All sensors update their values every 30 seconds by polling the Aldes API.
+All sensors update their values by polling the Aldes API at the interval specified in the configuration (default: 60 seconds).
 
 ## Notes
 
-*   The VMC fan status in HomeKit will update immediately when you control the device via HomeKit. External changes (from the Aldes app) will be detected every 5 minutes.
+*   The VMC fan status in HomeKit will update immediately when you control the device via HomeKit. External changes (from the Aldes app) will be detected at the interval specified in the configuration (default: 60 seconds).
 *   The mapping between HomeKit fan speeds (0%, 50%, 100%) and Aldes modes ('V', 'Y', 'X') is defined in the plugin code.
 *   If your VMC model doesn't provide sensor data, you can disable all sensors in the configuration.
 *   Not all VMC models support multiple temperature and humidity sensors. Enable only the sensors that your model supports.
+*   You can adjust polling intervals to reduce API calls if needed. Too frequent polling might lead to rate limiting by the Aldes API.
 
 ## License
 

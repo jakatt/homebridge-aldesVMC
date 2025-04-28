@@ -2,6 +2,9 @@ import { Service, PlatformAccessory, CharacteristicValue, Logger } from 'homebri
 import { AldesVMCPlatform } from './platform.js';
 import { AldesAPI } from './aldes_api.js';
 
+// Default polling interval in seconds if not specified in config
+const DEFAULT_SENSOR_POLLING_INTERVAL = 60;
+
 // Define the sensor types and locations
 type SensorType = 'temperature' | 'humidity';
 type SensorLocation = 'main' | 'ba1' | 'ba2' | 'ba3' | 'ba4';  // Support up to 4 additional sensors
@@ -89,10 +92,11 @@ export class ClimateSensorAccessory {
             clearInterval(this.pollingInterval);
         }
         
-        // Poll every 30 seconds (more frequent polling for better responsiveness)
-        const pollIntervalMs = 30 * 1000;
+        // Get polling interval from config, or use default
+        const pollingIntervalSeconds = this.platform.config.sensorPollingInterval || DEFAULT_SENSOR_POLLING_INTERVAL;
+        const pollIntervalMs = pollingIntervalSeconds * 1000;
         
-        this.log.info(`Starting ${this.sensorType} (${this.getLocationName()}) polling every ${pollIntervalMs/1000} seconds`);
+        this.log.info(`Starting ${this.sensorType} (${this.getLocationName()}) polling every ${pollingIntervalSeconds} seconds`);
         
         // Perform an immediate refresh before setting up the interval
         this.refreshStatus().then(() => {
