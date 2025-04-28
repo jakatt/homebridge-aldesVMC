@@ -1,6 +1,6 @@
 import { Service, PlatformAccessory, CharacteristicValue, Logger } from 'homebridge';
-import { AldesVMCPlatform } from './platform.js'; // Add .js extension
-import { AldesAPI, VmcMode } from './aldes_api.js'; // Add .js extension
+import { AldesVMCPlatform } from './platform.js'; 
+import { AldesAPI, VmcMode } from './aldes_api.js'; 
 
 // Define a type for Service constructors that have a static UUID
 type ServiceConstructorWithUUID = typeof Service & { UUID: string };
@@ -21,9 +21,17 @@ const SpeedToAldesMode = (speed: number): VmcMode => {
     // Default fallback (shouldn't be reached with validValues)
     return 'V';
 };
-const DEFAULT_ACTIVE_MODE: VmcMode = 'Y'; // Default mode when turning fan ON remains Boost ('Y')
+
 // Default polling interval in seconds if not specified
 const DEFAULT_EXTERNAL_CHANGES_POLLING_INTERVAL = 60;
+// Default mode when turning fan ON
+const DEFAULT_ACTIVE_MODE: VmcMode = 'Y';
+// State update debounce time in milliseconds
+const STATE_UPDATE_DEBOUNCE_MS = 500;
+// Recovery delay after failed API call
+const RECOVERY_DELAY_MS = 2000;
+// Maximum number of failed state updates before resetting
+const MAX_FAILED_UPDATES = 5;
 
 export class VmcAccessory {
     private service: Service;
@@ -32,6 +40,11 @@ export class VmcAccessory {
     private isSelfControlled = false; // Track if VMC is in SELF_CONTROLLED mode
     private pollingInterval: NodeJS.Timeout | null = null; // For status polling
     private lastMode: VmcMode | null = null; // Track last mode to detect changes
+    private refreshInProgress = false; // Flag to prevent concurrent refresh
+    private updateDebounceTimer: NodeJS.Timeout | null = null; // For debouncing updates
+    private lastApiUpdate = 0; // Timestamp of last API update
+    private failedStateUpdates = 0; // Counter for failed state updates
+    private isUpdatingCharacteristic = false; // Flag to prevent update loops
 
     constructor(
         private readonly platform: AldesVMCPlatform,
@@ -41,11 +54,10 @@ export class VmcAccessory {
     ) {
         this.accessory.getService(this.platform.Service.AccessoryInformation)!
             .setCharacteristic(this.platform.Characteristic.Manufacturer, 'Aldes')
-            .setCharacteristic(this.platform.Characteristic.Model, 'VMC Fan Control') // Updated model
+            .setCharacteristic(this.platform.Characteristic.Model, 'VMC Fan Control') 
             .setCharacteristic(this.platform.Characteristic.SerialNumber, this.accessory.UUID);
 
         // --- Remove Old/Unwanted Services ---
-        // Use the more specific type for the array
         const servicesToRemove: ServiceConstructorWithUUID[] = [
             this.platform.Service.Switch,
             this.platform.Service.Outlet,
@@ -87,23 +99,57 @@ export class VmcAccessory {
              })
              .onGet(this.handleRotationSpeedGet.bind(this))
              .onSet(this.handleRotationSpeedSet.bind(this));
+             
+        // Add a warning indicator when API health degrades
+        this.service.addOptionalCharacteristic(this.platform.Characteristic.StatusFault);
+        this.service.setCharacteristic(
+            this.platform.Characteristic.StatusFault,
+            this.platform.Characteristic.StatusFault.NO_FAULT
+        );
         // --- End Fanv2 Service Initialization ---
 
         this.initializeDevice();
     }
 
     async initializeDevice() {
-        this.deviceId = await this.aldesApi.getDeviceId();
-        if (!this.deviceId) {
-            this.log.error(`Failed to initialize VMC Accessory: Could not get Device ID.`);
-            return;
+        try {
+            this.deviceId = await this.aldesApi.getDeviceId();
+            if (!this.deviceId) {
+                this.log.error(`Failed to initialize VMC Accessory: Could not get Device ID.`);
+                this.setFaultState(true);
+                
+                // Retry initialization after delay
+                setTimeout(() => {
+                    this.log.info("Retrying device initialization...");
+                    this.initializeDevice();
+                }, RECOVERY_DELAY_MS);
+                return;
+            }
+            
+            this.log.info(`VMC Accessory initialized with Device ID: ${this.deviceId}`);
+            
+            // Perform an initial status fetch to populate cache
+            const success = await this.refreshStatus();
+            
+            if (!success) {
+                this.log.warn("Initial status fetch failed, will retry and continue with polling");
+                this.setFaultState(true);
+            } else {
+                this.setFaultState(false);
+            }
+            
+            // Start polling for status updates regardless of initial fetch success
+            this.startPolling();
+        } catch (error) {
+            this.log.error(`Error during device initialization: ${error}`);
+            this.setFaultState(true);
+            
+            // Retry initialization after delay
+            setTimeout(() => {
+                this.log.info("Retrying device initialization after error...");
+                this.initializeDevice();
+            }, RECOVERY_DELAY_MS);
         }
-        this.log.info(`VMC Accessory initialized with Device ID: ${this.deviceId}`);
-        // Perform an initial status fetch to populate cache
-        await this.refreshStatus();
-        
-        // Start polling for status updates
-        this.startPolling();
     }
     
     // Set up polling mechanism to detect external changes
@@ -119,6 +165,7 @@ export class VmcAccessory {
         this.log.info(`Starting polling for external changes every ${pollingIntervalSeconds} seconds...`);
         
         this.pollingInterval = setInterval(async () => {
+            await this.checkApiHealth();
             await this.checkForExternalChanges();
         }, pollIntervalMs);
         
@@ -132,13 +179,51 @@ export class VmcAccessory {
         });
     }
     
+    // New method to check API health and update fault state
+    async checkApiHealth() {
+        const health = this.aldesApi.getApiHealth();
+        
+        // Update fault state based on API health
+        if (!health.healthy) {
+            this.log.warn(`API health check failed: ${health.consecutiveFailures} consecutive failures, last error: ${health.lastError}`);
+            this.setFaultState(true);
+            
+            // If API has been unhealthy for a while, try to reset
+            if (health.consecutiveFailures > 5) {
+                this.log.info("API has been unhealthy for too long, attempting to reset API state");
+                this.aldesApi.resetApiState();
+            }
+        } else {
+            this.setFaultState(false);
+        }
+    }
+    
+    // Helper method to set fault state with debounce to prevent flapping
+    private setFaultState(hasFault: boolean) {
+        // Skip redundant updates
+        const currentFault = this.service.getCharacteristic(this.platform.Characteristic.StatusFault).value as number;
+        const newFault = hasFault ? 
+            this.platform.Characteristic.StatusFault.GENERAL_FAULT : 
+            this.platform.Characteristic.StatusFault.NO_FAULT;
+            
+        if (currentFault !== newFault) {
+            this.service.updateCharacteristic(
+                this.platform.Characteristic.StatusFault,
+                newFault
+            );
+        }
+    }
+    
     async checkForExternalChanges() {
-        if (!this.deviceId) return;
+        if (!this.deviceId || this.refreshInProgress) return;
         
         try {
+            this.refreshInProgress = true;
+            
             const status = await this.aldesApi.getDeviceStatus(this.deviceId);
             if (!status || !status.mode) {
                 this.log.debug('Polling skipped: Could not get valid device status');
+                this.refreshInProgress = false;
                 return;
             }
             
@@ -156,31 +241,85 @@ export class VmcAccessory {
                 this.currentMode = newMode;
                 this.isSelfControlled = newSelfControlled;
                 
-                // Update HomeKit fan state
+                // Safely update HomeKit state
+                this.updateHomeKitState(true);
+            }
+            
+            // Reset failed updates counter on successful API call
+            this.failedStateUpdates = 0;
+            
+        } catch (error) {
+            this.log.error(`Error checking for external changes: ${error}`);
+            this.failedStateUpdates++;
+            
+            if (this.failedStateUpdates >= MAX_FAILED_UPDATES) {
+                this.log.warn(`Too many failed updates (${this.failedStateUpdates}), triggering API state reset`);
+                this.aldesApi.resetApiState();
+                this.failedStateUpdates = 0;
+            }
+        } finally {
+            this.refreshInProgress = false;
+        }
+    }
+    
+    // Helper method to safely update HomeKit state
+    private updateHomeKitState(fromExternal = false) {
+        // Prevent update loops and too frequent updates
+        if (this.isUpdatingCharacteristic) {
+            this.log.debug("Skipping HomeKit update: Update already in progress");
+            return;
+        }
+        
+        // Debounce updates to prevent overwhelming HomeKit
+        if (this.updateDebounceTimer) {
+            clearTimeout(this.updateDebounceTimer);
+        }
+        
+        this.updateDebounceTimer = setTimeout(() => {
+            try {
+                this.isUpdatingCharacteristic = true;
+                
                 const isActiveState = this.currentMode !== 'V';
                 const currentSpeed = AldesModeToSpeed[this.currentMode];
                 const currentActiveState = isActiveState ? 
                     this.platform.Characteristic.Active.ACTIVE : 
                     this.platform.Characteristic.Active.INACTIVE;
                 
+                this.log.debug(`Updating HomeKit state: Active=${currentActiveState}, Speed=${currentSpeed}% (Mode: ${this.currentMode})`);
+                
                 this.service.updateCharacteristic(this.platform.Characteristic.Active, currentActiveState);
                 this.service.updateCharacteristic(this.platform.Characteristic.RotationSpeed, currentSpeed);
+                
+                // Update extra logging context if it was an external change
+                if (fromExternal) {
+                    this.log.info(`HomeKit UI updated to reflect external change: ${isActiveState ? 'ON' : 'OFF'} at ${currentSpeed}%`);
+                }
+            } catch (error) {
+                this.log.error(`Error updating HomeKit state: ${error}`);
+            } finally {
+                this.isUpdatingCharacteristic = false;
+                this.updateDebounceTimer = null;
             }
-        } catch (error) {
-            this.log.error(`Error checking for external changes: ${error}`);
-        }
+        }, STATE_UPDATE_DEBOUNCE_MS);
     }
 
     // Method to fetch current status and update cache + HomeKit state
-    async refreshStatus() {
-        if (!this.deviceId) return;
+    async refreshStatus(): Promise<boolean> {
+        if (!this.deviceId) return false;
+        if (this.refreshInProgress) {
+            this.log.debug("Skipping refresh: Another refresh already in progress");
+            return false;
+        }
 
         this.log.debug(`Refreshing status...`);
+        this.refreshInProgress = true;
+        
         try {
             const status = await this.aldesApi.getDeviceStatus(this.deviceId);
             if (!status) {
                 this.log.warn(`[Refresh] Failed to get device status. Keeping cached values.`);
-                return;
+                this.refreshInProgress = false;
+                return false;
             }
 
             // Update self-controlled state
@@ -194,16 +333,32 @@ export class VmcAccessory {
 
             const isActiveState = this.currentMode !== 'V'; // Active if mode is Y or X
             const currentSpeed = AldesModeToSpeed[this.currentMode];
-            const currentActiveState = isActiveState ? this.platform.Characteristic.Active.ACTIVE : this.platform.Characteristic.Active.INACTIVE;
+            const currentActiveState = isActiveState ? 
+                this.platform.Characteristic.Active.ACTIVE : 
+                this.platform.Characteristic.Active.INACTIVE;
 
             this.log.debug(`Refreshed Status - Mode: ${this.currentMode}, ActiveState: ${currentActiveState}, Speed: ${currentSpeed}, SelfControlled: ${this.isSelfControlled}`);
 
             // Update HomeKit state non-blockingly
-            this.service.updateCharacteristic(this.platform.Characteristic.Active, currentActiveState);
-            this.service.updateCharacteristic(this.platform.Characteristic.RotationSpeed, currentSpeed);
-
+            this.updateHomeKitState();
+            
+            // Reset failed updates counter on successful refresh
+            this.failedStateUpdates = 0;
+            
+            this.refreshInProgress = false;
+            return true;
         } catch (error) {
             this.log.error(`Error refreshing status: ${error}`);
+            this.failedStateUpdates++;
+            
+            if (this.failedStateUpdates >= MAX_FAILED_UPDATES) {
+                this.log.warn(`Too many failed updates (${this.failedStateUpdates}), triggering API state reset`);
+                this.aldesApi.resetApiState();
+                this.failedStateUpdates = 0;
+            }
+            
+            this.refreshInProgress = false;
+            return false;
         }
     }
 
@@ -222,6 +377,14 @@ export class VmcAccessory {
     async handleActiveSet(value: CharacteristicValue) {
         if (!this.deviceId) {
             this.log.warn(`Cannot set active state: Device ID not available.`);
+            throw new this.platform.api.hap.HapStatusError(this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
+        }
+        
+        // Check API health before attempting to change state
+        const health = this.aldesApi.getApiHealth();
+        if (!health.healthy) {
+            this.log.warn("Cannot change mode: API appears to be unhealthy");
+            this.setFaultState(true);
             throw new this.platform.api.hap.HapStatusError(this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
         }
         
@@ -244,6 +407,26 @@ export class VmcAccessory {
             );
         }
         
+        // Check for rapid changes
+        const now = Date.now();
+        const timeSinceLastUpdate = now - this.lastApiUpdate;
+        if (timeSinceLastUpdate < 1000) { // Less than 1 second
+            this.log.warn(`Rate limiting: Ignoring Active state change, last change was ${timeSinceLastUpdate}ms ago`);
+            
+            // Reset characteristic to current value
+            const currentActiveState = this.currentMode !== 'V' ? 
+                this.platform.Characteristic.Active.ACTIVE : 
+                this.platform.Characteristic.Active.INACTIVE;
+                
+            setTimeout(() => {
+                this.service.updateCharacteristic(this.platform.Characteristic.Active, currentActiveState);
+            }, 100);
+            
+            throw new this.platform.api.hap.HapStatusError(
+                this.platform.api.hap.HAPStatus.RESOURCE_BUSY
+            );
+        }
+        
         const targetActiveState = value as number; // ACTIVE or INACTIVE
         const targetIsActive = targetActiveState === this.platform.Characteristic.Active.ACTIVE;
         this.log.debug(`SET Active to: ${targetActiveState} (${targetIsActive ? 'ON' : 'OFF'})`);
@@ -263,6 +446,7 @@ export class VmcAccessory {
         this.log.info(`Setting Active=${targetIsActive ? 'ON' : 'OFF'} by setting mode to ${targetMode}`);
 
         try {
+            this.lastApiUpdate = now; // Record update time
             const success = await this.aldesApi.setVmcMode(this.deviceId, targetMode);
             if (!success) {
                 this.log.error(`API call failed to set mode to ${targetMode}`);
@@ -279,9 +463,23 @@ export class VmcAccessory {
             this.service.updateCharacteristic(this.platform.Characteristic.Active, targetActiveState);
 
             this.log.info(`Successfully set mode to ${targetMode}`);
+            
+            // Reset failed update counter after successful update
+            this.failedStateUpdates = 0;
+            
+            // Reset fault state if present
+            this.setFaultState(false);
 
         } catch (error) {
             this.log.error(`Error setting mode to ${targetMode}: ${error}`);
+            
+            this.failedStateUpdates++;
+            if (this.failedStateUpdates >= MAX_FAILED_UPDATES) {
+                this.log.warn(`Too many failed updates (${this.failedStateUpdates}), triggering API state reset`);
+                this.aldesApi.resetApiState();
+                this.failedStateUpdates = 0;
+            }
+            
             // Trigger a refresh to get the actual current state after failure
             setTimeout(() => this.refreshStatus(), 1000); // Refresh after 1s
             throw new this.platform.api.hap.HapStatusError(this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
@@ -304,6 +502,14 @@ export class VmcAccessory {
             throw new this.platform.api.hap.HapStatusError(this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
         }
         
+        // Check API health before attempting to change state
+        const health = this.aldesApi.getApiHealth();
+        if (!health.healthy) {
+            this.log.warn("Cannot change speed: API appears to be unhealthy");
+            this.setFaultState(true);
+            throw new this.platform.api.hap.HapStatusError(this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
+        }
+        
         // Check if VMC is in SELF_CONTROLLED mode
         if (this.isSelfControlled) {
             this.log.warn(`Cannot change speed: Device is in SELF_CONTROLLED (force) mode.`);
@@ -318,6 +524,24 @@ export class VmcAccessory {
             // Only pass the status code to match the expected signature
             throw new this.platform.api.hap.HapStatusError(
                 this.platform.api.hap.HAPStatus.NOT_ALLOWED_IN_CURRENT_STATE
+            );
+        }
+        
+        // Check for rapid changes
+        const now = Date.now();
+        const timeSinceLastUpdate = now - this.lastApiUpdate;
+        if (timeSinceLastUpdate < 1000) { // Less than 1 second
+            this.log.warn(`Rate limiting: Ignoring speed change, last change was ${timeSinceLastUpdate}ms ago`);
+            
+            // Reset characteristic to current value
+            const currentSpeed = AldesModeToSpeed[this.currentMode];
+                
+            setTimeout(() => {
+                this.service.updateCharacteristic(this.platform.Characteristic.RotationSpeed, currentSpeed);
+            }, 100);
+            
+            throw new this.platform.api.hap.HapStatusError(
+                this.platform.api.hap.HAPStatus.RESOURCE_BUSY
             );
         }
         
@@ -342,6 +566,7 @@ export class VmcAccessory {
         // Set the target mode V, Y, or X
         this.log.info(`Setting speed to ${speed}% by setting mode to ${targetMode}`);
         try {
+            this.lastApiUpdate = now; // Record update time
             const success = await this.aldesApi.setVmcMode(this.deviceId, targetMode);
             if (!success) {
                  this.log.error(`API call failed to set mode to ${targetMode}`);
@@ -356,9 +581,23 @@ export class VmcAccessory {
             this.service.updateCharacteristic(this.platform.Characteristic.RotationSpeed, targetSpeed);
 
             this.log.info(`Successfully set mode to ${targetMode}`);
+            
+            // Reset failed update counter after successful update
+            this.failedStateUpdates = 0;
+            
+            // Reset fault state if present
+            this.setFaultState(false);
 
         } catch (error) {
             this.log.error(`Error setting mode to ${targetMode}: ${error}`);
+            
+            this.failedStateUpdates++;
+            if (this.failedStateUpdates >= MAX_FAILED_UPDATES) {
+                this.log.warn(`Too many failed updates (${this.failedStateUpdates}), triggering API state reset`);
+                this.aldesApi.resetApiState();
+                this.failedStateUpdates = 0;
+            }
+            
             // Trigger a refresh to get the actual current state after failure
             setTimeout(() => this.refreshStatus(), 1000); // Refresh after 1s
             throw new this.platform.api.hap.HapStatusError(this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
