@@ -18,7 +18,15 @@
     "aldes",
     "vmc",
     "ventilation",
-    "AldesConnect"
+    "AldesConnect",
+    "hvac",
+    "air-quality",
+    "ventilation-control",
+    "home-automation",
+    "temperature",
+    "humidity",
+    "co2",
+    "sensors"
   ],
   "author": {
     "name": "Jakatt",
