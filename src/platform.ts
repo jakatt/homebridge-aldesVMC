@@ -101,22 +101,19 @@ export class AldesVMCPlatform implements DynamicPlatformPlugin {
     const co2Uuid = this.api.hap.uuid.generate(PLUGIN_NAME + co2SensorName);
     const forceModeUuid = this.api.hap.uuid.generate(PLUGIN_NAME + forceModeIndicatorName);
 
-    // Create a shared VMC controller instance
-    let vmcController: VmcAccessory | undefined;
-
     // VMC Fan Accessory
     const existingAccessory = this.accessories.find(accessory => accessory.UUID === uuid);
     if (existingAccessory) {
       this.log.info('Restoring existing accessory from cache:', existingAccessory.displayName);
       // Create the VmcAccessory instance for the restored accessory
-      vmcController = new VmcAccessory(this, existingAccessory, this.log, this.aldesApi);
+      new VmcAccessory(this, existingAccessory, this.log, this.aldesApi);
     } else {
       this.log.info('Adding new accessory:', vmcName);
       // Create a new accessory
       const accessory = new this.api.platformAccessory(vmcName, uuid);
 
       // Create the VmcAccessory instance for the new accessory
-      vmcController = new VmcAccessory(this, accessory, this.log, this.aldesApi);
+      new VmcAccessory(this, accessory, this.log, this.aldesApi);
 
       // Link the accessory to your platform
       this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);

@@ -27,7 +27,7 @@ interface AldesIndicator {
 
 interface AldesDeviceDetails {
     indicators: AldesIndicator[];
-    indicator?: Record<string, any>; // Add optional indicator object property
+    indicator?: Record<string, unknown>; // Changed from Record<string, any> to unknown
     // Add other fields if needed
 }
 
@@ -366,7 +366,7 @@ export class AldesAPI {
                 
                 // Get air quality if not already set
                 if (!status.airQuality && indObj.Qai && typeof indObj.Qai === 'object' && indObj.Qai !== null) {
-                    const qai = indObj.Qai;
+                    const qai = indObj.Qai as { actualValue?: number };
                     if (qai.actualValue && typeof qai.actualValue === 'number') {
                         status.airQuality = qai.actualValue;
                         this.log.info(`Air quality found from nested Qai object: ${status.airQuality}`);
