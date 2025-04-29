@@ -138,70 +138,108 @@ export class AldesVMCPlatform implements DynamicPlatformPlugin {
 
     // Check if sensors should be enabled (default to true if not specified)
     const enableSensors = this.config.enableSensors !== false;
-    if (enableSensors) {
-      // Air Quality Sensor Accessory
-      const airQualitySensorName = `${vmcName} Air Quality`;
-      const airQualityUuid = this.api.hap.uuid.generate(PLUGIN_NAME + airQualitySensorName);
-      this.findOrCreateAccessory(airQualitySensorName, airQualityUuid, AirQualitySensorAccessory, 'airQuality');
-
-      // CO2 Sensor Accessory
-      const co2SensorName = `${vmcName} CO₂ Level`;
-      const co2Uuid = this.api.hap.uuid.generate(PLUGIN_NAME + co2SensorName);
-      this.findOrCreateAccessory(co2SensorName, co2Uuid, AirQualitySensorAccessory, 'co2');
-
-      // Climate Sensors (Temp/Humidity)
-      const sensorConfig = this.config.sensorConfig || {};
-      const temperatureConfig = sensorConfig.temperature || {
-        main: true, ba1: true, ba2: true, ba3: false, ba4: false
-      };
-      const humidityConfig = sensorConfig.humidity || {
-        main: true, ba1: true, ba2: true, ba3: false, ba4: false
-      };
-
-      // Define all possible locations
-      const allLocations: SensorLocation[] = ['main', 'ba1', 'ba2', 'ba3', 'ba4'];
-
-      // Create Temperature Sensors
-      allLocations.forEach(location => {
-        // Check if this temperature sensor is enabled in config
-        if (temperatureConfig[location] !== true) {
-          return; // Skip if not enabled
+    
+    // Find existing sensor accessories that might need to be removed
+    const sensorAccessoriesToRemove: PlatformAccessory[] = [];
+    
+    if (!enableSensors) {
+      // If sensors are disabled, identify all sensor accessories to remove
+      this.log.info('Sensors disabled in config. Removing any existing sensor accessories...');
+      
+      // Identify sensor accessories to be removed (all except VMC and Force Mode)
+      this.accessories.forEach(accessory => {
+        // Skip the main VMC accessory and Force Mode accessory
+        if (accessory.displayName === vmcName || accessory.displayName === forceModeIndicatorName) {
+          return;
         }
-
-        const locationDisplayName = location === 'main' ? 'Main Temperature Sensor ⌀125' : 
-                                    location === 'ba1' ? 'Room 1 Temperature Sensor ⌀80' :
-                                    location === 'ba2' ? 'Room 2 Temperature Sensor ⌀80' :
-                                    location === 'ba3' ? 'Room 3 Temperature Sensor ⌀80' :
-                                    'Room 4 Temperature Sensor ⌀80';
         
-        const tempSensorName = `${vmcName} ${locationDisplayName}`;
-        const tempUuid = this.api.hap.uuid.generate(PLUGIN_NAME + tempSensorName);
-        
-        this.findOrCreateAccessory(tempSensorName, tempUuid, ClimateSensorAccessory, 'temperature', location);
+        // Add all other accessories (which are sensors) to removal list
+        this.log.debug(`Marking sensor for removal: ${accessory.displayName}`);
+        sensorAccessoriesToRemove.push(accessory);
       });
-
-      // Create Humidity Sensors
-      allLocations.forEach(location => {
-        // Check if this humidity sensor is enabled in config
-        if (humidityConfig[location] !== true) {
-          return; // Skip if not enabled
-        }
-
-        const locationDisplayName = location === 'main' ? 'Main Humidity Sensor ⌀125' : 
-                                    location === 'ba1' ? 'Room 1 Humidity Sensor ⌀80' :
-                                    location === 'ba2' ? 'Room 2 Humidity Sensor ⌀80' :
-                                    location === 'ba3' ? 'Room 3 Humidity Sensor ⌀80' :
-                                    'Room 4 Humidity Sensor ⌀80';
+      
+      // Remove identified sensor accessories
+      if (sensorAccessoriesToRemove.length > 0) {
+        this.log.info(`Removing ${sensorAccessoriesToRemove.length} sensor accessories because sensors are disabled in config`);
+        this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, sensorAccessoriesToRemove);
         
-        const humSensorName = `${vmcName} ${locationDisplayName}`;
-        const humUuid = this.api.hap.uuid.generate(PLUGIN_NAME + humSensorName);
-        
-        this.findOrCreateAccessory(humSensorName, humUuid, ClimateSensorAccessory, 'humidity', location);
-      });
-    } else {
-      this.log.info('Sensors disabled in config, skipping sensor accessories');
-      // Consider removing existing sensor accessories if sensors are now disabled
+        // Also remove them from our tracked accessories array
+        sensorAccessoriesToRemove.forEach(accessoryToRemove => {
+          const index = this.accessories.indexOf(accessoryToRemove);
+          if (index !== -1) {
+            this.accessories.splice(index, 1);
+          }
+          
+          // Remove from managed accessories map as well
+          this.managedAccessories.delete(accessoryToRemove.UUID);
+        });
+      }
+      
+      return; // Exit early, don't create any sensors
     }
+    
+    // If sensors are enabled, continue with sensor creation
+    this.log.info('Sensors enabled in config. Setting up sensor accessories...');
+    
+    // Air Quality Sensor Accessory
+    const airQualitySensorName = `${vmcName} Air Quality`;
+    const airQualityUuid = this.api.hap.uuid.generate(PLUGIN_NAME + airQualitySensorName);
+    this.findOrCreateAccessory(airQualitySensorName, airQualityUuid, AirQualitySensorAccessory, 'airQuality');
+
+    // CO2 Sensor Accessory
+    const co2SensorName = `${vmcName} CO₂ Level`;
+    const co2Uuid = this.api.hap.uuid.generate(PLUGIN_NAME + co2SensorName);
+    this.findOrCreateAccessory(co2SensorName, co2Uuid, AirQualitySensorAccessory, 'co2');
+
+    // Climate Sensors (Temp/Humidity)
+    const sensorConfig = this.config.sensorConfig || {};
+    const temperatureConfig = sensorConfig.temperature || {
+      main: true, ba1: true, ba2: true, ba3: false, ba4: false
+    };
+    const humidityConfig = sensorConfig.humidity || {
+      main: true, ba1: true, ba2: true, ba3: false, ba4: false
+    };
+
+    // Define all possible locations
+    const allLocations: SensorLocation[] = ['main', 'ba1', 'ba2', 'ba3', 'ba4'];
+
+    // Create Temperature Sensors
+    allLocations.forEach(location => {
+      // Check if this temperature sensor is enabled in config
+      if (temperatureConfig[location] !== true) {
+        return; // Skip if not enabled
+      }
+
+      const locationDisplayName = location === 'main' ? 'Main Temperature Sensor ⌀125' : 
+                                  location === 'ba1' ? 'Room 1 Temperature Sensor ⌀80' :
+                                  location === 'ba2' ? 'Room 2 Temperature Sensor ⌀80' :
+                                  location === 'ba3' ? 'Room 3 Temperature Sensor ⌀80' :
+                                  'Room 4 Temperature Sensor ⌀80';
+      
+      const tempSensorName = `${vmcName} ${locationDisplayName}`;
+      const tempUuid = this.api.hap.uuid.generate(PLUGIN_NAME + tempSensorName);
+      
+      this.findOrCreateAccessory(tempSensorName, tempUuid, ClimateSensorAccessory, 'temperature', location);
+    });
+
+    // Create Humidity Sensors
+    allLocations.forEach(location => {
+      // Check if this humidity sensor is enabled in config
+      if (humidityConfig[location] !== true) {
+        return; // Skip if not enabled
+      }
+
+      const locationDisplayName = location === 'main' ? 'Main Humidity Sensor ⌀125' : 
+                                  location === 'ba1' ? 'Room 1 Humidity Sensor ⌀80' :
+                                  location === 'ba2' ? 'Room 2 Humidity Sensor ⌀80' :
+                                  location === 'ba3' ? 'Room 3 Humidity Sensor ⌀80' :
+                                  'Room 4 Humidity Sensor ⌀80';
+      
+      const humSensorName = `${vmcName} ${locationDisplayName}`;
+      const humUuid = this.api.hap.uuid.generate(PLUGIN_NAME + humSensorName);
+      
+      this.findOrCreateAccessory(humSensorName, humUuid, ClimateSensorAccessory, 'humidity', location);
+    });
   }
 
   // Helper to find/create accessories and store instances
@@ -250,7 +288,8 @@ export class AldesVMCPlatform implements DynamicPlatformPlugin {
       return;
     }
 
-    const pollingIntervalSeconds = this.config.pollingInterval || DEFAULT_EXTERNAL_CHANGES_POLLING_INTERVAL;
+    // Updated to use the renamed polling interval config
+    const pollingIntervalSeconds = this.config.externalChangesPollingInterval || DEFAULT_EXTERNAL_CHANGES_POLLING_INTERVAL;
     const pollIntervalMs = pollingIntervalSeconds * 1000;
 
     this.log.info(`Starting central polling every ${pollingIntervalSeconds} seconds...`);
