@@ -330,18 +330,13 @@ export class AldesAPI {
                         headers: { 'Authorization': `Bearer ${token}` },
                     });
 
-                    // Log the complete raw response to understand the full structure
-                    this.log.info('Complete API response:');
-                    this.log.info(JSON.stringify(response.data, null, 2));
+                    // Removed detailed JSON log to keep logs cleaner
+                    // Only log summarized data or essential information
+                    this.log.debug('API response received successfully');
 
-                    // Debug log indicators section
-                    this.log.debug('Raw API response indicators:');
-                    if (response.data?.indicators) {
-                        response.data.indicators.forEach(ind => {
-                            this.log.debug(`Indicator: ${ind.type}, Value: ${JSON.stringify(ind.value)}`);
-                        });
-                    }
-
+                    // Debug log indicators section - use debug level instead of info
+                    this.log.debug('Processing API response indicators...');
+                    
                     // Create the status object with default values from the indicators array
                     const status: AldesDeviceStatus = {
                         isSelfControlled: false,
@@ -368,7 +363,7 @@ export class AldesAPI {
                     // Now check for the indicator object which contains the detailed sensor data
                     if (response.data?.indicator && typeof response.data.indicator === 'object') {
                         const indObj = response.data.indicator;
-                        this.log.info('Found indicators object with nested structure');
+                        this.log.debug('Found indicators object with nested structure');
 
                         // Get mode from the indicator object if not already set
                         if (!status.mode && indObj.ConVe && typeof indObj.ConVe === 'string' && 
@@ -388,79 +383,79 @@ export class AldesAPI {
                         // Get CO2 level
                         if (indObj.CO2 && typeof indObj.CO2 === 'number') {
                             status.co2Level = indObj.CO2;
-                            this.log.info(`CO2 level found from nested object: ${status.co2Level} ppm`);
+                            this.log.debug(`CO2 level found from nested object: ${status.co2Level} ppm`);
                         }
                         
                         // Get main temperature (TmpCu)
                         if (indObj.TmpCu && typeof indObj.TmpCu === 'number') {
                             status.temperature = indObj.TmpCu / 10;
-                            this.log.info(`Temperature found from nested object: ${status.temperature}°C`);
+                            this.log.debug(`Temperature found from nested object: ${status.temperature}°C`);
                         }
                         
                         // Get main humidity (HrCu)
                         if (indObj.HrCu && typeof indObj.HrCu === 'number') {
                             status.humidity = indObj.HrCu;
-                            this.log.info(`Humidity found from nested object: ${status.humidity}%`);
+                            this.log.debug(`Humidity found from nested object: ${status.humidity}%`);
                         }
                         
                         // Get additional temperature 1 (TmpBa1)
                         if (indObj.TmpBa1 && typeof indObj.TmpBa1 === 'number') {
                             status.temperatureBa1 = indObj.TmpBa1 / 10;
-                            this.log.info(`Temperature Ba1 found from nested object: ${status.temperatureBa1}°C`);
+                            this.log.debug(`Temperature Ba1 found from nested object: ${status.temperatureBa1}°C`);
                         }
                         
                         // Get additional humidity 1 (HrBa1)
                         if (indObj.HrBa1 && typeof indObj.HrBa1 === 'number') {
                             status.humidityBa1 = indObj.HrBa1;
-                            this.log.info(`Humidity Ba1 found from nested object: ${status.humidityBa1}%`);
+                            this.log.debug(`Humidity Ba1 found from nested object: ${status.humidityBa1}%`);
                         }
                         
                         // Get additional temperature 2 (TmpBa2)
                         if (indObj.TmpBa2 && typeof indObj.TmpBa2 === 'number') {
                             status.temperatureBa2 = indObj.TmpBa2 / 10;
-                            this.log.info(`Temperature Ba2 found from nested object: ${status.temperatureBa2}°C`);
+                            this.log.debug(`Temperature Ba2 found from nested object: ${status.temperatureBa2}°C`);
                         }
                         
                         // Get additional humidity 2 (HrBa2)
                         if (indObj.HrBa2 && typeof indObj.HrBa2 === 'number') {
                             status.humidityBa2 = indObj.HrBa2;
-                            this.log.info(`Humidity Ba2 found from nested object: ${status.humidityBa2}%`);
+                            this.log.debug(`Humidity Ba2 found from nested object: ${status.humidityBa2}%`);
                         }
                         
                         // Get additional temperature 3 (TmpBa3)
                         if (indObj.TmpBa3 && typeof indObj.TmpBa3 === 'number') {
                             status.temperatureBa3 = indObj.TmpBa3 / 10;
-                            this.log.info(`Temperature Ba3 found from nested object: ${status.temperatureBa3}°C`);
+                            this.log.debug(`Temperature Ba3 found from nested object: ${status.temperatureBa3}°C`);
                         }
                         
                         // Get additional humidity 3 (HrBa3)
                         if (indObj.HrBa3 && typeof indObj.HrBa3 === 'number') {
                             status.humidityBa3 = indObj.HrBa3;
-                            this.log.info(`Humidity Ba3 found from nested object: ${status.humidityBa3}%`);
+                            this.log.debug(`Humidity Ba3 found from nested object: ${status.humidityBa3}%`);
                         }
                         
                         // Get additional temperature 4 (TmpBa4)
                         if (indObj.TmpBa4 && typeof indObj.TmpBa4 === 'number') {
                             status.temperatureBa4 = indObj.TmpBa4 / 10;
-                            this.log.info(`Temperature Ba4 found from nested object: ${status.temperatureBa4}°C`);
+                            this.log.debug(`Temperature Ba4 found from nested object: ${status.temperatureBa4}°C`);
                         }
                         
                         // Get additional humidity 4 (HrBa4)
                         if (indObj.HrBa4 && typeof indObj.HrBa4 === 'number') {
                             status.humidityBa4 = indObj.HrBa4;
-                            this.log.info(`Humidity Ba4 found from nested object: ${status.humidityBa4}%`);
+                            this.log.debug(`Humidity Ba4 found from nested object: ${status.humidityBa4}%`);
                         }
                         
                         // Get additional temperature 5 (TmpBa5)
                         if (indObj.TmpBa5 && typeof indObj.TmpBa5 === 'number') {
                             status.temperatureBa5 = indObj.TmpBa5 / 10;
-                            this.log.info(`Temperature Ba5 found from nested object: ${status.temperatureBa5}°C`);
+                            this.log.debug(`Temperature Ba5 found from nested object: ${status.temperatureBa5}°C`);
                         }
                         
                         // Get additional humidity 5 (HrBa5)
                         if (indObj.HrBa5 && typeof indObj.HrBa5 === 'number') {
                             status.humidityBa5 = indObj.HrBa5;
-                            this.log.info(`Humidity Ba5 found from nested object: ${status.humidityBa5}%`);
+                            this.log.debug(`Humidity Ba5 found from nested object: ${status.humidityBa5}%`);
                         }
                         
                         // Get air quality if not already set
@@ -468,7 +463,7 @@ export class AldesAPI {
                             const qai = indObj.Qai as { actualValue?: number };
                             if (qai.actualValue && typeof qai.actualValue === 'number') {
                                 status.airQuality = qai.actualValue;
-                                this.log.info(`Air quality found from nested Qai object: ${status.airQuality}`);
+                                this.log.debug(`Air quality found from nested Qai object: ${status.airQuality}`);
                             }
                         }
                     }
@@ -479,9 +474,11 @@ export class AldesAPI {
                         this.log.warn(`Mode not found in API response, defaulting to: ${status.mode}`);
                     }
 
-                    this.log.info(`Final device status: Mode=${status.mode}, SelfControlled=${status.isSelfControlled}, ` +
-                                 `AirQuality=${status.airQuality}, CO2=${status.co2Level}, ` +
-                                 `Temperature=${status.temperature}, Humidity=${status.humidity}`);
+                    // Log a summary of the device status instead of the full JSON
+                    this.log.info(`Device status summary: Mode=${status.mode}, SelfControlled=${status.isSelfControlled}, ` +
+                                 `AirQuality=${status.airQuality || 'N/A'}, CO2=${status.co2Level || 'N/A'}ppm, ` +
+                                 `Temp=${status.temperature || 'N/A'}°C, Humidity=${status.humidity || 'N/A'}%`);
+                    
                     // Log API health after successful call
                     const health = this.getApiHealth();
                     this.log.debug(`API Health: Healthy=${health.healthy}, Pending=${health.pendingCalls}`);
