@@ -459,16 +459,11 @@ export class VmcAccessory {
             throw new this.platform.api.hap.HapStatusError(this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
         }
 
-        // Check API health before attempting to change state
         await this.ensureApiHealth();
-        
-        // Log incoming value and current state for debugging
         this.log.debug(`handleActiveSet called with value: ${value}, current mode: ${this.currentMode}`);
 
-        // Check if VMC is in SELF_CONTROLLED mode
         if (this.isSelfControlled) {
             this.log.warn(`Cannot change mode: Device is in SELF_CONTROLLED (force) mode.`);
-            
             // Instead of throwing an error, revert to the current state after a short delay
             const currentActiveState = this.currentMode !== 'V' ?
                 this.platform.Characteristic.Active.ACTIVE :
@@ -503,7 +498,6 @@ export class VmcAccessory {
             return;
         }
 
-        // --- Add stricter Mutex Check ---
         if (this.isApiCallInProgress) {
             this.log.warn(`API call already in progress. Ignoring Active state change.`);
             
@@ -527,82 +521,42 @@ export class VmcAccessory {
             );
         }
 
-        this.log.info(`Active value received: ${value} (${value === 1 ? 'ON' : 'OFF'}), current mode: ${this.currentMode}`);
-        
+        // --- Custom cycling logic ---
+        let targetMode: VmcMode;
+        if (this.currentMode === 'V') {
+            targetMode = 'Y'; // OFF -> 50%
+        } else if (this.currentMode === 'Y') {
+            targetMode = 'X'; // 50% -> 100%
+        } else if (this.currentMode === 'X') {
+            targetMode = 'V'; // 100% -> OFF
+        } else {
+            targetMode = 'Y'; // fallback
+        }
+        this.log.info(`Cycling mode: ${this.currentMode} -> ${targetMode}`);
+
         try {
-            // Set mutex to prevent concurrent calls
             this.setApiMutex(true);
-            
-            // Convert value to number for safety
-            const activeValueNum = Number(value);
-            let targetMode: VmcMode;
-            
-            // SPECIALIZED HOMEKIT BEHAVIOR:
-            // When HomeKit sends Active=1 (ON), we need explicit handling based on current state
-            if (activeValueNum === this.platform.Characteristic.Active.ACTIVE) {
-                // HomeKit is turning the device ON
-                
-                // In HomeKit, when clicking on a Fan accessory that's OFF,
-                // HomeKit just sends Active=1 (ON) and doesn't specify the speed
-                // This is why it's important to handle this transition explicitly
-                
-                if (this.currentMode === 'V') { // Currently OFF
-                    // Always go to 50% (mode Y) first when turning on from OFF
-                    targetMode = 'Y';
-                    this.log.info('HomeKit turning ON from OFF state - setting to 50% (mode Y)');
-                }
-                else if (this.currentMode === 'Y') { // Currently at 50%
-                    // If at 50%, go to 100% on next click
-                    targetMode = 'X';
-                    this.log.info('HomeKit cycling from 50% to 100% (mode X)');
-                }
-                else {
-                    // If at 100% or any other state, go back to OFF
-                    targetMode = 'V';
-                    this.log.info('HomeKit cycling from 100% to OFF (mode V)');
-                }
-            }
-            else if (activeValueNum === this.platform.Characteristic.Active.INACTIVE) {
-                // HomeKit is turning the device OFF - always set to mode V
-                targetMode = 'V';
-                this.log.info('HomeKit turning OFF - setting to mode V');
-            }
-            else {
-                // Fallback for unexpected values
-                targetMode = this.currentMode === 'V' ? 'Y' : this.currentMode === 'Y' ? 'X' : 'V';
-                this.log.warn(`Received unexpected Active value: ${value}, falling back to cycle logic.`);
-            }
-            
             const targetIsActive = targetMode !== 'V';
             const targetActiveState = targetIsActive ?
                 this.platform.Characteristic.Active.ACTIVE :
                 this.platform.Characteristic.Active.INACTIVE;
             const targetSpeed = AldesModeToSpeed[targetMode];
-
-            this.log.info(`Setting mode to ${targetMode} (Active=${targetIsActive ? 'ON' : 'OFF'}, Speed=${targetSpeed}%)`);
-
-            // Update the UI state immediately without waiting for API confirmation
-            // The sequence is important for HomeKit to register the state correctly
+            // UI update sequence
             if (targetIsActive) {
-                // For ON state, first set Active=1, then set the Speed
                 this.service.updateCharacteristic(this.platform.Characteristic.Active, targetActiveState);
                 setTimeout(() => {
                     this.service.updateCharacteristic(this.platform.Characteristic.RotationSpeed, targetSpeed);
                 }, CHARACTERISTIC_UPDATE_SPACING_MS);
             } else {
-                // For OFF state, first set Speed=0, then set Active=0
                 this.service.updateCharacteristic(this.platform.Characteristic.RotationSpeed, targetSpeed);
                 setTimeout(() => {
                     this.service.updateCharacteristic(this.platform.Characteristic.Active, targetActiveState);
                 }, CHARACTERISTIC_UPDATE_SPACING_MS);
             }
-            
-            // Update internal state tracking to keep HomeKit and Homebridge in sync
             this.lastKnownActiveState = targetActiveState;
             this.lastKnownSpeed = targetSpeed;
             const previousMode = this.currentMode;
             this.currentMode = targetMode;
-            
             // Send the API request in the background - don't wait for result
             this.aldesApi.setVmcMode(this.deviceId!, targetMode)
                 .then(success => {
@@ -615,16 +569,13 @@ export class VmcAccessory {
                 .catch(error => {
                     this.log.warn(`Error calling API to set mode to ${targetMode}: ${error}. UI was already updated, polling will correct if needed.`);
                 });
-            
             // Setup cache-bust broadcasts to ensure consistent UI
             this.setupCacheBustBroadcasts(targetActiveState, targetSpeed);
-            
             return;
         } catch (error) {
             this.log.error(`Error in handleActiveSet: ${error}`);
             throw new this.platform.api.hap.HapStatusError(this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
         } finally {
-            // Release the mutex after a short delay
             setTimeout(() => {
                 this.setApiMutex(false);
             }, 500);
@@ -646,21 +597,15 @@ export class VmcAccessory {
             this.log.warn(`Cannot set speed: Device ID not available.`);
             throw new this.platform.api.hap.HapStatusError(this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
         }
-        
-        // Check API health before attempting to change state
         const health = this.aldesApi.getApiHealth();
         if (!health.healthy) {
             this.log.warn("Cannot change speed: API appears to be unhealthy");
             this.setFaultState(true);
             throw new this.platform.api.hap.HapStatusError(this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
         }
-        
         this.log.debug(`handleRotationSpeedSet called with value: ${value}, current mode: ${this.currentMode}`);
-        
-        // Check if VMC is in SELF_CONTROLLED mode
         if (this.isSelfControlled) {
             this.log.warn(`Cannot change speed: Device is in SELF_CONTROLLED (force) mode.`);
-            
             // Instead of throwing an error, revert to the current state
             const currentActiveState = this.currentMode !== 'V' ?
                 this.platform.Characteristic.Active.ACTIVE :
@@ -698,11 +643,8 @@ export class VmcAccessory {
             // Early return without throwing error
             return;
         }
-        
-        // --- Stricter Mutex Check ---
         if (this.isApiCallInProgress) {
             this.log.warn(`API call already in progress. Ignoring RotationSpeed change to ${value}%.`);
-            
             // Reset characteristic to current value to ensure UI consistency
             const currentSpeed = AldesModeToSpeed[this.currentMode];
             
@@ -715,59 +657,26 @@ export class VmcAccessory {
                 this.platform.api.hap.HAPStatus.RESOURCE_BUSY
             );
         }
-        
-        // Check for rapid changes (anti-thrashing protection)
-        const now = Date.now();
-        const timeSinceLastUpdate = now - this.lastApiUpdate;
-        if (timeSinceLastUpdate < 1000) {
-            this.log.warn(`Rate limiting: Ignoring speed change to ${value}%, last change was ${timeSinceLastUpdate}ms ago`);
-            
-            // Reset characteristic to current value
-            const currentSpeed = AldesModeToSpeed[this.currentMode];
-            
-            setTimeout(() => {
-                this.service.updateCharacteristic(this.platform.Characteristic.RotationSpeed, currentSpeed);
-            }, 200);
-            
-            throw new this.platform.api.hap.HapStatusError(
-                this.platform.api.hap.HAPStatus.RESOURCE_BUSY
-            );
+        // --- Custom cycling logic ---
+        let targetMode: VmcMode;
+        if (this.currentMode === 'V') {
+            targetMode = 'Y'; // OFF -> 50%
+        } else if (this.currentMode === 'Y') {
+            targetMode = 'X'; // 50% -> 100%
+        } else if (this.currentMode === 'X') {
+            targetMode = 'V'; // 100% -> OFF
+        } else {
+            targetMode = 'Y'; // fallback
         }
-        
-        // Get the requested speed
-        const speed = value as number;
-        this.log.info(`SET RotationSpeed to: ${speed}%, current mode: ${this.currentMode}`);
-        
+        this.log.info(`Cycling mode: ${this.currentMode} -> ${targetMode}`);
         try {
-            // Set mutex to prevent concurrent calls
             this.setApiMutex(true);
-            this.lastApiUpdate = now;
-            
-            // Determine target Aldes mode based on speed
-            const targetMode = SpeedToAldesMode(speed);
-            const targetSpeed = AldesModeToSpeed[targetMode];
+            this.lastApiUpdate = Date.now();
             const targetIsActive = targetMode !== 'V';
-            const targetActiveState = targetIsActive ? 
-                this.platform.Characteristic.Active.ACTIVE : 
+            const targetActiveState = targetIsActive ?
+                this.platform.Characteristic.Active.ACTIVE :
                 this.platform.Characteristic.Active.INACTIVE;
-            
-            // Check if the mode is already correct
-            if (this.currentMode === targetMode) {
-                this.log.debug(`Mode is already ${targetMode}. No change needed.`);
-                
-                // Still update the UI to ensure consistency
-                setTimeout(() => {
-                    this.service.updateCharacteristic(this.platform.Characteristic.RotationSpeed, targetSpeed);
-                    setTimeout(() => {
-                        this.service.updateCharacteristic(this.platform.Characteristic.Active, targetActiveState);
-                    }, CHARACTERISTIC_UPDATE_SPACING_MS);
-                }, 50);
-                return;
-            }
-            
-            this.log.info(`Setting speed to ${speed}% by setting mode to ${targetMode}`);
-            
-            // Update UI immediately without waiting for API confirmation
+            const targetSpeed = AldesModeToSpeed[targetMode];
             if (targetIsActive) {
                 this.service.updateCharacteristic(this.platform.Characteristic.Active, targetActiveState);
                 setTimeout(() => {
@@ -779,14 +688,10 @@ export class VmcAccessory {
                     this.service.updateCharacteristic(this.platform.Characteristic.Active, targetActiveState);
                 }, CHARACTERISTIC_UPDATE_SPACING_MS);
             }
-            
-            // Update internal state tracking to keep HomeKit and Homebridge in sync
             this.lastKnownActiveState = targetActiveState;
             this.lastKnownSpeed = targetSpeed;
             const previousMode = this.currentMode;
             this.currentMode = targetMode;
-            
-            // Send API request in background without waiting for result
             this.aldesApi.setVmcMode(this.deviceId!, targetMode)
                 .then(success => {
                     if (!success) {
@@ -798,15 +703,11 @@ export class VmcAccessory {
                 .catch(error => {
                     this.log.warn(`Error calling API to set mode to ${targetMode}: ${error}. UI was already updated, polling will correct if needed.`);
                 });
-            
-            // Setup cache-bust broadcasts to ensure UI consistency
             this.setupCacheBustBroadcasts(targetActiveState, targetSpeed);
-            
         } catch (error) {
             this.log.error(`Error in handleRotationSpeedSet: ${error}`);
             throw new this.platform.api.hap.HapStatusError(this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
         } finally {
-            // Release the mutex after a short delay
             setTimeout(() => {
                 this.setApiMutex(false);
             }, 500);
