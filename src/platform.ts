@@ -27,6 +27,7 @@ export class AldesVMCPlatform implements DynamicPlatformPlugin {
   private deviceId: string | null = null; // Store the main device ID centrally
 
   private aldesApi?: AldesAPI; // Instance variable for AldesAPI
+  public readonly logLevel: string = 'info';
 
   constructor(
     public readonly log: Logger,
@@ -52,19 +53,37 @@ export class AldesVMCPlatform implements DynamicPlatformPlugin {
     );
     // --- End Aldes API Initialization ---
 
-    this.api.on('didFinishLaunching', async () => {
-      this.log.debug('Executed didFinishLaunching callback');
-      await this.initializeApiAndDeviceId(); // Ensure API is ready and get Device ID
-      this.discoverDevices(); // Discover/restore accessories
-      this.startPlatformPolling(); // Start central polling
+    // FORCE REMOVAL OF PROBLEMATIC ACCESSORIES
+    // These are the accessories that were created during our color display attempts
+    this.api.on('didFinishLaunching', () => {
+      // Get VMC name from config
+      const vmcName = this.config.vmcName || 'Aldes VMC';
+      
+      // Define the exact names of accessories to forcibly remove
+      const namesToRemove = [
+        `${vmcName} Air Quality Status`,
+        `${vmcName} CO₂ Level Alert`,
+      ];
+      
+      // Search for and remove these accessories by exact name
+      this.removeAccessoriesByNameOrUUID(namesToRemove);
 
-      // Remove outdated accessories after startup
-      if (this.outdatedAccessories.length > 0) {
-        this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, this.outdatedAccessories);
-        this.log.info('Removed outdated accessories:', this.outdatedAccessories.map(acc => acc.displayName).join(', '));
-        this.outdatedAccessories = []; // Clear the list
-      }
+      // Continue with normal platform startup
+      this.log.debug('Executed didFinishLaunching callback');
+      this.initializeApiAndDeviceId().then(() => {
+        this.discoverDevices(); // Discover/restore accessories
+        this.startPlatformPolling(); // Start central polling
+        
+        // Remove outdated accessories after startup
+        if (this.outdatedAccessories.length > 0) {
+          this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, this.outdatedAccessories);
+          this.log.info('Removed outdated accessories:', this.outdatedAccessories.map(acc => acc.displayName).join(', '));
+          this.outdatedAccessories = []; // Clear the list
+        }
+      });
     });
+
+    this.logLevel = this.config.logLevel || 'info';
   }
 
   // New method to initialize API and get the main device ID
@@ -103,6 +122,22 @@ export class AldesVMCPlatform implements DynamicPlatformPlugin {
       return;
     }
     
+    // IMPORTANT: Reject any OccupancySensor accessories completely
+    // This is the most direct way to remove the unwanted accessories
+    const service = accessory.getService(this.api.hap.Service.OccupancySensor);
+    if (service) {
+      this.log.warn(`Found unwanted OccupancySensor accessory: ${accessory.displayName}. This will be unregistered immediately.`);
+      this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
+      return;
+    }
+    
+    // Add another check for specific accessory names to be extremely explicit
+    if (accessory.displayName.includes('Status') || accessory.displayName.includes('Alert')) {
+      this.log.warn(`Found extra accessory to remove: ${accessory.displayName}. Will be unregistered immediately.`);
+      this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
+      return;
+    }
+    
     this.accessories.push(accessory);
   }
 
@@ -119,14 +154,52 @@ export class AldesVMCPlatform implements DynamicPlatformPlugin {
     }
     if (!this.deviceId) {
       this.log.warn('Main Device ID not available, skipping device discovery for now.');
-      // Optionally schedule a retry
-      // setTimeout(() => this.discoverDevices(), 30000);
       return;
     }
 
     // Example: Create a single VMC accessory based on config name
     const vmcName = this.config.vmcName || 'Aldes VMC';
     const uuid = this.api.hap.uuid.generate(PLUGIN_NAME + vmcName); // Generate UUID based on name
+
+    // First, remove the unwanted Occupancy Sensor accessories that were mistakenly created
+    const airQualityStatusName = `${vmcName} Air Quality Status`;
+    const co2AlertName = `${vmcName} CO₂ Level Alert`;
+    
+    // Generate the UUIDs for the accessories we want to remove
+    const airQualityStatusUuid = this.api.hap.uuid.generate(PLUGIN_NAME + airQualityStatusName);
+    const co2AlertUuid = this.api.hap.uuid.generate(PLUGIN_NAME + co2AlertName);
+    
+    // Find the accessories with these names or UUIDs
+    const accessoriesToRemove: PlatformAccessory[] = [];
+    
+    this.accessories.forEach(accessory => {
+      // Check by name or UUID
+      if (accessory.displayName === airQualityStatusName || 
+          accessory.displayName === co2AlertName ||
+          accessory.UUID === airQualityStatusUuid || 
+          accessory.UUID === co2AlertUuid) {
+        
+        this.log.info(`Found unwanted accessory to remove: ${accessory.displayName} (${accessory.UUID})`);
+        accessoriesToRemove.push(accessory);
+      }
+    });
+    
+    // Remove the found accessories
+    if (accessoriesToRemove.length > 0) {
+      this.log.info(`Removing ${accessoriesToRemove.length} unwanted accessories`);
+      this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, accessoriesToRemove);
+      
+      // Also remove them from our tracked accessories array
+      accessoriesToRemove.forEach(accessoryToRemove => {
+        const index = this.accessories.indexOf(accessoryToRemove);
+        if (index !== -1) {
+          this.accessories.splice(index, 1);
+        }
+        
+        // Remove from managed accessories map as well
+        this.managedAccessories.delete(accessoryToRemove.UUID);
+      });
+    }
 
     // VMC Fan Accessory
     this.findOrCreateAccessory(vmcName, uuid, VmcAccessory);
@@ -372,6 +445,32 @@ export class AldesVMCPlatform implements DynamicPlatformPlugin {
       clearInterval(this.pollingInterval);
     }
     this.log.info('Shutting down AldesVMC platform.');
+  }
+
+  // Helper to check if a log should be shown
+  public shouldLog(level: string): boolean {
+    const levels = ['error', 'warn', 'info', 'debug'];
+    const configIdx = levels.indexOf(this.logLevel);
+    const msgIdx = levels.indexOf(level);
+    return msgIdx <= configIdx;
+  }
+
+  // Helper to remove accessories by name or UUID
+  private removeAccessoriesByNameOrUUID(namesOrUUIDs: string[]): void {
+    const toRemove: PlatformAccessory[] = [];
+    this.accessories.forEach(accessory => {
+      if (namesOrUUIDs.includes(accessory.displayName) || namesOrUUIDs.includes(accessory.UUID)) {
+        if (this.shouldLog('info')) this.log.info(`Removing accessory: ${accessory.displayName}`);
+        toRemove.push(accessory);
+      }
+    });
+    if (toRemove.length > 0) {
+      this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, toRemove);
+      toRemove.forEach(acc => {
+        const index = this.accessories.indexOf(acc);
+        if (index !== -1) this.accessories.splice(index, 1);
+      });
+    }
   }
 }
 

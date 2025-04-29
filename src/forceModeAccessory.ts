@@ -59,18 +59,13 @@ export class ForceModeAccessory {
     // Method to receive status updates from the platform
     public updateStatus(status: AldesDeviceStatus) {
         if (!status) return;
-
         const newSelfControlled = status.isSelfControlled;
-
-        // Check if self-controlled state has changed
         if (this.isSelfControlled !== newSelfControlled) {
-            this.log.info(`Updating Force Mode indicator: ${this.isSelfControlled} -> ${newSelfControlled}`);
+            if (this.platform.shouldLog('info')) this.log.info(`Updating Force Mode indicator: ${this.isSelfControlled} -> ${newSelfControlled}`);
             this.isSelfControlled = newSelfControlled;
-            
-            // Update the switch state
             this.service.updateCharacteristic(
                 this.platform.Characteristic.On,
-                this.isSelfControlled // true if self-controlled, false otherwise
+                this.isSelfControlled
             );
         }
     }

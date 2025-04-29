@@ -70,11 +70,8 @@ export class ClimateSensorAccessory {
     // Method to receive status updates from the platform
     public updateStatus(status: AldesDeviceStatus) {
         if (!status) return;
-
-        // Update temperature data based on sensor location
         if (this.sensorType === 'temperature') {
             let tempValue: number | undefined;
-            
             switch (this.sensorLocation) {
                 case 'main': tempValue = status.temperature; break;
                 case 'ba1': tempValue = status.temperatureBa1; break;
@@ -82,9 +79,8 @@ export class ClimateSensorAccessory {
                 case 'ba3': tempValue = status.temperatureBa3; break;
                 case 'ba4': tempValue = status.temperatureBa4; break;
             }
-            
             if (tempValue !== undefined && tempValue !== this.currentTemperature) {
-                this.log.info(`Updating temperature (${this.getLocationName()}): ${this.currentTemperature}°C -> ${tempValue}°C`);
+                if (this.platform.shouldLog('info')) this.log.info(`Updating temperature (${this.getLocationName()}): ${this.currentTemperature}°C -> ${tempValue}°C`);
                 this.currentTemperature = tempValue;
                 this.service.updateCharacteristic(
                     this.platform.Characteristic.CurrentTemperature, 
@@ -92,11 +88,8 @@ export class ClimateSensorAccessory {
                 );
             }
         }
-
-        // Update humidity data based on sensor location
         if (this.sensorType === 'humidity') {
             let humValue: number | undefined;
-            
             switch (this.sensorLocation) {
                 case 'main': humValue = status.humidity; break;
                 case 'ba1': humValue = status.humidityBa1; break;
@@ -104,9 +97,8 @@ export class ClimateSensorAccessory {
                 case 'ba3': humValue = status.humidityBa3; break;
                 case 'ba4': humValue = status.humidityBa4; break;
             }
-            
             if (humValue !== undefined && humValue !== this.currentHumidity) {
-                this.log.info(`Updating humidity (${this.getLocationName()}): ${this.currentHumidity}% -> ${humValue}%`);
+                if (this.platform.shouldLog('info')) this.log.info(`Updating humidity (${this.getLocationName()}): ${this.currentHumidity}% -> ${humValue}%`);
                 this.currentHumidity = humValue;
                 this.service.updateCharacteristic(
                     this.platform.Characteristic.CurrentRelativeHumidity, 

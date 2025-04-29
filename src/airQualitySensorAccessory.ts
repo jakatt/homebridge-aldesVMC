@@ -57,11 +57,10 @@ export class AirQualitySensorAccessory {
     // Method to receive status updates from the platform
     public updateStatus(status: AldesDeviceStatus) {
         if (!status) return;
-
         if (this.sensorType === 'airQuality' && status.airQuality !== undefined && status.airQuality !== null) {
             const newAirQuality = this.mapAldesQualityToHomeKit(status.airQuality);
             if (newAirQuality !== this.currentAirQualityValue) {
-                this.log.info(`Updating air quality (${this.accessory.displayName}): ${this.currentAirQualityValue} -> ${newAirQuality} (Raw: ${status.airQuality})`);
+                if (this.platform.shouldLog('info')) this.log.info(`Updating air quality (${this.accessory.displayName}): ${this.currentAirQualityValue} -> ${newAirQuality} (Raw: ${status.airQuality})`);
                 this.currentAirQualityValue = newAirQuality;
                 this.service.updateCharacteristic(this.platform.Characteristic.AirQuality, newAirQuality);
             }
@@ -71,30 +70,27 @@ export class AirQualitySensorAccessory {
                 this.platform.Characteristic.CarbonDioxideDetected.CO2_LEVELS_ABNORMAL : 
                 this.platform.Characteristic.CarbonDioxideDetected.CO2_LEVELS_NORMAL;
             const newAirQualityFromCO2 = this.mapCO2ToHomeKitAirQuality(newCO2Level);
-
             let updated = false;
             if (newCO2Level !== this.currentCO2Value) {
-                this.log.info(`Updating CO2 level (${this.accessory.displayName}): ${this.currentCO2Value} -> ${newCO2Level} ppm`);
+                if (this.platform.shouldLog('info')) this.log.info(`Updating CO2 level (${this.accessory.displayName}): ${this.currentCO2Value} -> ${newCO2Level} ppm`);
                 this.currentCO2Value = newCO2Level;
                 this.service.updateCharacteristic(this.platform.Characteristic.CarbonDioxideLevel, newCO2Level);
                 updated = true;
             }
             if (newCO2Detected !== this.currentCO2Detected) {
-                this.log.info(`Updating CO2 detected state (${this.accessory.displayName}): ${this.currentCO2Detected} -> ${newCO2Detected}`);
+                if (this.platform.shouldLog('info')) this.log.info(`Updating CO2 detected state (${this.accessory.displayName}): ${this.currentCO2Detected} -> ${newCO2Detected}`);
                 this.currentCO2Detected = newCO2Detected;
                 this.service.updateCharacteristic(this.platform.Characteristic.CarbonDioxideDetected, newCO2Detected);
                 updated = true;
             }
-            // Also update the generic AirQuality characteristic based on CO2
             const currentAirQuality = this.service.getCharacteristic(this.platform.Characteristic.AirQuality).value;
             if (newAirQualityFromCO2 !== currentAirQuality) {
-                 this.log.debug(`Updating mapped AirQuality from CO2 (${this.accessory.displayName}): ${currentAirQuality} -> ${newAirQualityFromCO2}`);
-                 this.service.updateCharacteristic(this.platform.Characteristic.AirQuality, newAirQualityFromCO2);
-                 updated = true;
+                if (this.platform.shouldLog('debug')) this.log.debug(`Updating mapped AirQuality from CO2 (${this.accessory.displayName}): ${currentAirQuality} -> ${newAirQualityFromCO2}`);
+                this.service.updateCharacteristic(this.platform.Characteristic.AirQuality, newAirQualityFromCO2);
+                updated = true;
             }
-            
-            if (updated) {
-                 this.log.debug(`CO2 sensor (${this.accessory.displayName}) updated: level=${newCO2Level} ppm, detected=${newCO2Detected}`);
+            if (updated && this.platform.shouldLog('debug')) {
+                this.log.debug(`CO2 sensor (${this.accessory.displayName}) updated: level=${newCO2Level} ppm, detected=${newCO2Detected}`);
             }
         }
     }

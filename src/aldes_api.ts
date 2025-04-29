@@ -613,4 +613,21 @@ export class AldesAPI {
             return String(error);
         }
     }
+    // Utility: log with respect to platform log level
+    private logWithLevel(level: 'debug' | 'info' | 'warn' | 'error', message: string) {
+        // If logger has shouldLog (from platform), use it
+        if ((this.log as any).shouldLog) {
+            if ((this.log as any).shouldLog(level)) {
+                this.log[level](message);
+            }
+        } else {
+            // Fallback: always log
+            this.log[level](message);
+        }
+    }
+    // Utility: handle and log errors
+    private handleError(context: string, error: unknown) {
+        const msg = `${context}: ${this.formatError(error)}`;
+        this.logWithLevel('error', msg);
+    }
 }
