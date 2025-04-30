@@ -133,6 +133,7 @@ When the VMC is in "Force Mode" (self-controlled), it cannot be controlled from 
 
 ## Changelog
 
+- **1.1.2**: Improved stability, cleanup and optimization
 - **1.1.1**: Improved accessory cleanup, added Force Mode indicator, enhanced error handling, and optimized polling.
 - **1.1.0**: Added support for multiple sensors and improved HomeKit state synchronization.
 - **1.0.0**: Initial release.
