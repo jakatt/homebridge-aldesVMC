@@ -49,9 +49,8 @@
         }
       },
       "sensorConfig": {
-        "title": "Sensor Configuration",
+        "title": "_______________________________________",
         "type": "object",
-        "description": "Configuration for individual temperature and humidity sensors",
         "condition": {
           "functionBody": "return (model.enableSensors !== false);"
         },
